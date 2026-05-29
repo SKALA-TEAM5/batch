@@ -22,6 +22,7 @@ env:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -85,5 +86,5 @@ jobs:
 
           kubectl delete job "${JOB_NAME}" --ignore-not-found=true
           kubectl apply -f "${JOB_FILE}"
-          kubectl wait --for=condition=complete "job/${JOB_NAME}" --timeout=3600s
+          kubectl wait --for=condition=complete "job/${JOB_NAME}" --timeout=10800s
           kubectl logs "job/${JOB_NAME}"
