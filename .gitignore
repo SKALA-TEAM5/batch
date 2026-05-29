@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# 가상환경
+.venv/
+
+# 환경변수
+.env
+.env.*
+
+# 캐시
+.cache/
+
+# Docling 변환 결과 (폴더 구조는 유지, 파일 제외)
+outputs/*
+!outputs/.gitkeep
+
+# 데이터 파일 (폴더 구조는 유지, 파일 제외)
+data/*
+!data/.gitkeep
+
+# 빌드
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+
+# 아티팩트 (폴더 구조는 유지, 파일 제외)
+artifacts/*
+!artifacts/.gitkeep
