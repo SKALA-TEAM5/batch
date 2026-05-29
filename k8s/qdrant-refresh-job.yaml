@@ -42,6 +42,11 @@ spec:
                 secretKeyRef:
                   name: team5-postgres-secret
                   key: LAW_APP_PASSWORD
+            - name: LAW_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: team5-batch-secret
+                  key: LAW_API_KEY
           command:
             - sh
             - -c

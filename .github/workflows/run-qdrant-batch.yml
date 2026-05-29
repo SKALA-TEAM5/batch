@@ -63,6 +63,16 @@ jobs:
         run: |
           kubectl config set-context --current --namespace="${K8S_NAMESPACE}"
 
+      - name: Apply batch secrets
+        env:
+          LAW_API_KEY: ${{ secrets.LAW_API_KEY }}
+        run: |
+          kubectl create secret generic team5-batch-secret \
+            --namespace="${K8S_NAMESPACE}" \
+            --from-literal=LAW_API_KEY="${LAW_API_KEY}" \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+
       - name: Run selected batch job
         run: |
           if [ "${{ inputs.mode }}" = "refresh" ]; then

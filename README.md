@@ -49,3 +49,18 @@ GitHub Actions에서 이미지를 빌드한 뒤, 수동 실행으로 Kubernetes 
 
 - `ingest`: 전체 초기 적재
 - `refresh`: 변경분 갱신
+
+Actions Secret에 아래 값을 등록해야 합니다.
+
+```text
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+HARBOR_REGISTRY
+HARBOR_PROJECT
+HARBOR_USERNAME
+HARBOR_PASSWORD
+LAW_API_KEY
+```
+
+`LAW_API_KEY`는 workflow 실행 시 `team5-batch-secret` Kubernetes Secret으로 반영되고,
+배치 Job은 이 Secret을 환경변수로 읽습니다.
