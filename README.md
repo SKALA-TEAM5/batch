@@ -1,0 +1,51 @@
+# Batch
+
+법령/RAG 데이터를 PostgreSQL과 Qdrant에 적재하거나 갱신하는 배치 프로젝트입니다.
+
+## Kubernetes 연결
+
+배치 Pod는 같은 namespace 안의 내부 Service로 접속합니다.
+
+```env
+QDRANT_URL=http://team5-qdrant:6333
+POSTGRES_HOST=team5-postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=safety
+```
+
+`DATABASE_URL`은 Kubernetes Job 시작 시 `team5-postgres-secret`의 `LAW_APP_USER`와 `LAW_APP_PASSWORD`로 조립합니다.
+
+## 주요 명령
+
+초기 적재:
+
+```bash
+python -m src.ingestion_service --collection legal_documents --force
+```
+
+증분 갱신:
+
+```bash
+python -m src.refresh_service --collection legal_documents
+```
+
+## 로컬 확인
+
+```bash
+kubectl port-forward svc/team5-postgres 5433:5432 -n skala3-finalproj-class2-team5
+kubectl port-forward svc/team5-qdrant 6333:6333 -n skala3-finalproj-class2-team5
+```
+
+`.env` 예시:
+
+```env
+QDRANT_URL=http://localhost:6333
+DATABASE_URL=postgresql://safety_law_app:<password>@localhost:5433/safety
+```
+
+## 배포/실행
+
+GitHub Actions에서 이미지를 빌드한 뒤, 수동 실행으로 Kubernetes Job을 생성합니다.
+
+- `ingest`: 전체 초기 적재
+- `refresh`: 변경분 갱신
