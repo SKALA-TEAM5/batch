@@ -40,22 +40,28 @@ log = logging.getLogger(__name__)
 
 _DRF_BASE_URL = "https://www.law.go.kr/DRF"
 _ADMRUL_NAME = "건설업 산업안전보건관리비 계상 및 사용기준"
-_USAGE_STANDARD_URL = (
-    "https://www.law.go.kr/LSW/admRulInfoR.do?admRulSeq=2100000254546"
-)
+_USAGE_STANDARD_URL = "https://www.law.go.kr/LSW/admRulInfoR.do?admRulSeq=2100000254546"
 _HTML_CACHE_PATH = Path(".cache/usage_standard_raw.html")
-_HTML_CACHE_TTL  = 60 * 60 * 24  # 24시간 (초 단위)
-_SOURCE_ID    = "usage_standard:admRulSeq:2100000254546"
-_SOURCE_NAME  = "건설업 산업안전보건관리비 계상 및 사용기준(고용노동부고시)(제2025-11호)(20250212)"
+_HTML_CACHE_TTL = 60 * 60 * 24  # 24시간 (초 단위)
+_SOURCE_ID = "usage_standard:admRulSeq:2100000254546"
+_SOURCE_NAME = (
+    "건설업 산업안전보건관리비 계상 및 사용기준(고용노동부고시)(제2025-11호)(20250212)"
+)
 _SOURCE_TITLE = "건설업 산업안전보건관리비 계상 및 사용기준"
 _EFFECTIVE_DATE = "2025-02-12"
-_NOTICE_NO    = "제2025-11호"
-_LAW_PREFIX   = "건설업 산업안전보건관리비 계상 및 사용기준"
+_NOTICE_NO = "제2025-11호"
+_LAW_PREFIX = "건설업 산업안전보건관리비 계상 및 사용기준"
 
 _HO_TO_CAT: dict[int, str] = {
-    1: "CAT_01", 2: "CAT_02", 3: "CAT_03",
-    4: "CAT_04", 5: "CAT_05", 6: "CAT_06",
-    7: "CAT_07", 8: "CAT_08", 9: "CAT_09",
+    1: "CAT_01",
+    2: "CAT_02",
+    3: "CAT_03",
+    4: "CAT_04",
+    5: "CAT_05",
+    6: "CAT_06",
+    7: "CAT_07",
+    8: "CAT_08",
+    9: "CAT_09",
 }
 _CAT_NAMES: dict[str, str] = {
     "CAT_01": "안전관리자 등의 인건비 및 각종 업무 수당 등",
@@ -72,6 +78,7 @@ _CAT_NAMES: dict[str, str] = {
 
 # ── 법제처 행정규칙 Open API 수집 ───────────────────────────────────────────
 
+
 def _api_key() -> str:
     """LAW_API_KEY를 호출 시점에 읽는다."""
     return os.environ.get("LAW_API_KEY", "").strip()
@@ -83,7 +90,9 @@ def _law_api_get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         "OC": _api_key(),
         "type": "JSON",
     }
-    resp = requests.get(f"{_DRF_BASE_URL}/{endpoint}", params=request_params, timeout=20)
+    resp = requests.get(
+        f"{_DRF_BASE_URL}/{endpoint}", params=request_params, timeout=20
+    )
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, dict):
@@ -93,7 +102,9 @@ def _law_api_get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
 
 def _fetch_current_admrul_summary() -> dict[str, Any]:
     if not _api_key():
-        raise RuntimeError("LAW_API_KEY 환경변수가 없어 행정규칙 API를 사용할 수 없습니다.")
+        raise RuntimeError(
+            "LAW_API_KEY 환경변수가 없어 행정규칙 API를 사용할 수 없습니다."
+        )
 
     data = _law_api_get(
         "lawSearch.do",
@@ -208,7 +219,9 @@ def _admrul_service_to_text(service: dict[str, Any]) -> str:
             lines.extend(body_lines)
 
     bylaws = service.get("부칙") or {}
-    bylaw_lines = _flatten_text(bylaws.get("부칙내용") if isinstance(bylaws, dict) else bylaws)
+    bylaw_lines = _flatten_text(
+        bylaws.get("부칙내용") if isinstance(bylaws, dict) else bylaws
+    )
     if bylaw_lines:
         lines.append("")
         lines.extend(bylaw_lines)
@@ -229,8 +242,12 @@ def _update_source_metadata(summary: dict[str, Any], service: dict[str, Any]) ->
         or summary.get("행정규칙일련번호")
         or "2100000254546"
     ).strip()
-    title = str(info.get("행정규칙명") or summary.get("행정규칙명") or _ADMRUL_NAME).strip()
-    kind = str(info.get("행정규칙종류") or summary.get("행정규칙종류") or "고시").strip()
+    title = str(
+        info.get("행정규칙명") or summary.get("행정규칙명") or _ADMRUL_NAME
+    ).strip()
+    kind = str(
+        info.get("행정규칙종류") or summary.get("행정규칙종류") or "고시"
+    ).strip()
     notice_no = str(info.get("발령번호") or summary.get("발령번호") or "").strip()
     effective_raw = info.get("시행일자") or summary.get("시행일자")
     effective_date = _format_yyyymmdd(effective_raw)
@@ -241,11 +258,7 @@ def _update_source_metadata(summary: dict[str, Any], service: dict[str, Any]) ->
     _LAW_PREFIX = title
     _NOTICE_NO = f"제{notice_no}호" if notice_no else ""
     _EFFECTIVE_DATE = effective_date or ""
-    _SOURCE_NAME = (
-        f"{title}(고용노동부{kind})"
-        f"({_NOTICE_NO})"
-        f"({effective_compact})"
-    )
+    _SOURCE_NAME = f"{title}(고용노동부{kind})({_NOTICE_NO})({effective_compact})"
     _USAGE_STANDARD_URL = (
         "https://www.law.go.kr/DRF/lawService.do"
         f"?target=admrul&ID={admrul_seq}&type=JSON"
@@ -270,6 +283,7 @@ def _fetch_usage_standard_from_api() -> str:
 
 
 # ── HTML 수집 ────────────────────────────────────────────────────────────────
+
 
 def _fetch_html(force_refresh: bool = False) -> str:
     """
@@ -362,9 +376,14 @@ def fetch_usage_standard(force_refresh: bool = False) -> str:
     # 본문 컨테이너 선택 (우선순위 순)
     container = None
     for selector in [
-        "#lawViewWrap", "#conWrap", "#lawContWrap",
-        "div.law_view", "div.view_wrap", "div.law_cont",
-        "article", "main",
+        "#lawViewWrap",
+        "#conWrap",
+        "#lawContWrap",
+        "div.law_view",
+        "div.view_wrap",
+        "div.law_cont",
+        "article",
+        "main",
     ]:
         container = soup.select_one(selector)
         if container:
@@ -374,8 +393,23 @@ def fetch_usage_standard(force_refresh: bool = False) -> str:
     target = container if container else soup
 
     # block 레벨 태그 앞뒤에 줄바꿈 삽입
-    _BLOCK_TAGS = {"p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6",
-                   "tr", "table", "section", "article", "blockquote"}
+    _BLOCK_TAGS = {
+        "p",
+        "div",
+        "br",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "tr",
+        "table",
+        "section",
+        "article",
+        "blockquote",
+    }
     for tag in target.find_all(_BLOCK_TAGS):
         tag.insert_before(NavigableString("\n"))
         tag.insert_after(NavigableString("\n"))
@@ -395,6 +429,7 @@ def fetch_usage_standard(force_refresh: bool = False) -> str:
 
 
 # ── 마크다운 변환 ─────────────────────────────────────────────────────────────
+
 
 def convert_to_markdown(text: str) -> str:
     """
@@ -427,7 +462,7 @@ def convert_to_markdown(text: str) -> str:
     for line in lines:
         line_s = line.strip()
 
-        bt_m  = _APPENDIX_LINE_RE.match(line_s)
+        bt_m = _APPENDIX_LINE_RE.match(line_s)
         art_m = _ARTICLE_LINE_RE.match(line_s)
 
         if bt_m:
@@ -439,7 +474,11 @@ def convert_to_markdown(text: str) -> str:
         elif art_m:
             if current:
                 blocks.append(current)
-            current = {"type": "article", "key": f"제{art_m.group(1)}조", "lines": [line]}
+            current = {
+                "type": "article",
+                "key": f"제{art_m.group(1)}조",
+                "lines": [line],
+            }
         else:
             if current:
                 current["lines"].append(line)
@@ -461,12 +500,14 @@ def convert_to_markdown(text: str) -> str:
             continue
 
         if block["type"] == "article":
-            art_m2 = re.match(r"(제\d+조(?:의\d+)?)\s*\(([^)]+)\)\s*(.*)", block_text, re.DOTALL)
+            art_m2 = re.match(
+                r"(제\d+조(?:의\d+)?)\s*\(([^)]+)\)\s*(.*)", block_text, re.DOTALL
+            )
             if not art_m2:
                 continue
-            art_no    = art_m2.group(1)
+            art_no = art_m2.group(1)
             art_title = art_m2.group(2)
-            art_body  = art_m2.group(3).strip()
+            art_body = art_m2.group(3).strip()
 
             # 조문 전체가 삭제된 경우 스킵
             if _is_deleted(art_body):
@@ -499,7 +540,7 @@ def convert_to_markdown(text: str) -> str:
 
                     ho_m = re.match(r"(\d+)\.\s+(.*)", ho_part, re.DOTALL)
                     if ho_m:
-                        ho_num  = ho_m.group(1)
+                        ho_num = ho_m.group(1)
                         ho_body = ho_m.group(2).strip()
 
                         # 호가 삭제된 경우 스킵
@@ -520,9 +561,9 @@ def convert_to_markdown(text: str) -> str:
                             lines_out.append(ho_part + "\n")
 
         else:  # appendix
-            bt_key   = block["key"]
+            bt_key = block["key"]
             bt_title = block["lines"][0].strip()[:80] if block["lines"] else bt_key
-            bt_body  = block_text
+            bt_body = block_text
 
             # 별표가 삭제된 경우 스킵
             if _is_deleted(bt_body):
@@ -548,10 +589,7 @@ def _is_deleted(text: str) -> bool:
         return False
 
     # 첫 번째 실질 줄
-    first = next(
-        (l for l in text.strip().splitlines() if l.strip()),
-        ""
-    ).strip()
+    first = next((l for l in text.strip().splitlines() if l.strip()), "").strip()
     clean = re.sub(r"[<>〈〉《》「」]", "", first).strip()
 
     # 완전 일치
@@ -562,7 +600,7 @@ def _is_deleted(text: str) -> bool:
     # ex) "삭제 제2장...", "삭제제2조..."
     # "삭제를", "삭제된" 같은 정상 텍스트는 여기서 걸리지 않음
     if clean.startswith("삭제"):
-        remainder = clean[2:].lstrip()          # "삭제" 이후 문자열
+        remainder = clean[2:].lstrip()  # "삭제" 이후 문자열
         if not remainder:
             return True
         # 뒤가 장/조/항 구분자이면 삭제된 것
@@ -594,6 +632,7 @@ def _format_mo_items(text: str) -> str:
 
 # ── RDB upsert ───────────────────────────────────────────────────────────────
 
+
 def upsert_to_rdb(
     raw_text: str,
     database_url: str | None = None,
@@ -612,24 +651,27 @@ def upsert_to_rdb(
     """
     import psycopg
 
-    db_url     = database_url or os.environ.get(
+    db_url = database_url or os.environ.get(
         "DATABASE_URL",
         "postgresql://safety_user:safety_password@localhost:5432/safety",
     )
     _seed_path = seed_path or _DEFAULT_SEED_PATH
 
-    master_rows  = _dedupe_rows_by_id(
-        _rows if _rows is not None else (_build_corpus_rows(raw_text) + _build_rules_rows(raw_text))
+    master_rows = _dedupe_rows_by_id(
+        _rows
+        if _rows is not None
+        else (_build_corpus_rows(raw_text) + _build_rules_rows(raw_text))
     )
-    profile_rows = _profiles if _profiles is not None else _build_profile_rows(_seed_path)
+    profile_rows = (
+        _profiles if _profiles is not None else _build_profile_rows(_seed_path)
+    )
 
-    conn          = psycopg.connect(db_url)
-    master_count  = 0
+    conn = psycopg.connect(db_url)
+    master_count = 0
     profile_count = 0
 
     with conn:
         with conn.cursor() as cur:
-
             # ── 1) legal_master ────────────────────────────────────────────
             cur.execute(
                 "DELETE FROM legal_rag.legal_master WHERE source_name = %s",
@@ -666,30 +708,31 @@ def upsert_to_rdb(
             log.info("legal_master upsert 완료: %d개", master_count)
 
             # ── 2) legal_rule_profiles ─────────────────────────────────────
-            cur.execute("DELETE FROM legal_rag.legal_rule_profiles WHERE true")
-            for row in profile_rows:
-                cur.execute(
-                    """
-                    INSERT INTO legal_rag.legal_rule_profiles
-                      (profile_id, profile_scope, category_code,
-                       profile_key, values_json, metadata)
-                    VALUES
-                      (%(profile_id)s, %(profile_scope)s, %(category_code)s,
-                       %(profile_key)s, %(values_json)s::jsonb, %(metadata)s::jsonb)
-                    """,
-                    row,
-                )
-                profile_count += 1
+            if profile_rows:
+                cur.execute("DELETE FROM legal_rag.legal_rule_profiles WHERE true")
+                for row in profile_rows:
+                    cur.execute(
+                        """
+                        INSERT INTO legal_rag.legal_rule_profiles
+                          (profile_id, profile_scope, category_code,
+                           profile_key, values_json, metadata)
+                        VALUES
+                          (%(profile_id)s, %(profile_scope)s, %(category_code)s,
+                           %(profile_key)s, %(values_json)s::jsonb, %(metadata)s::jsonb)
+                        """,
+                        row,
+                    )
+                    profile_count += 1
             log.info("legal_rule_profiles upsert 완료: %d개", profile_count)
 
     conn.close()
 
     corpus_count = sum(1 for r in master_rows if r["record_type"] == "corpus")
-    rules_count  = sum(1 for r in master_rows if r["record_type"] == "rule")
+    rules_count = sum(1 for r in master_rows if r["record_type"] == "rule")
     return {
-        "master":   master_count,
-        "corpus":   corpus_count,
-        "rules":    rules_count,
+        "master": master_count,
+        "corpus": corpus_count,
+        "rules": rules_count,
         "profiles": profile_count,
     }
 
@@ -703,6 +746,7 @@ def _dedupe_rows_by_id(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 # ── corpus rows 구성 (조 단위) → legal_master format ──────────────────────────
+
 
 def _build_corpus_rows(text: str) -> list[dict[str, Any]]:
     rows: list[dict] = []
@@ -719,38 +763,43 @@ def _build_corpus_rows(text: str) -> list[dict[str, Any]]:
             continue
 
         art_no = art_m.group(1)
-        title  = art_m.group(2).strip()
-        body   = art_m.group(3).strip()
+        title = art_m.group(2).strip()
+        body = art_m.group(3).strip()
         if not body or _is_deleted(body):
             continue
 
         _row_id = f"{_SOURCE_ID}:{art_no}:{idx:04d}"
-        rows.append({
-            "id":           _row_id,
-            "source_name":  _SOURCE_NAME,
-            "source_type":  "law",
-            "source_path":  _USAGE_STANDARD_URL,
-            "article_no":   art_no,
-            "paragraph_no": None,
-            "item_no":      None,
-            "section_path": f"{_LAW_PREFIX} > {art_no} ({title})",
-            "chunk_id":     make_chunk_id(_row_id),
-            "body":         body,
-            "record_type":  "corpus",
-            "content_type": "article",
-            "rule_type":    None,
-            "category_code": None,
-            "category_name": None,
-            "allowed":      None,
-            "limit_pct":    None,
-            "keyword":      None,
-            "item_pattern": None,
-            "legal_basis":  None,
-            "cited_laws":   _extract_cited_laws(body),
-            "keywords":     [],
-            "hash":         hashlib.sha256(body.encode()).hexdigest(),
-            "metadata":     json.dumps({"source_kind": "usage_standard", "title": title}, ensure_ascii=False),
-        })
+        rows.append(
+            {
+                "id": _row_id,
+                "source_name": _SOURCE_NAME,
+                "source_type": "law",
+                "source_path": _USAGE_STANDARD_URL,
+                "article_no": art_no,
+                "paragraph_no": None,
+                "item_no": None,
+                "section_path": f"{_LAW_PREFIX} > {art_no} ({title})",
+                "chunk_id": make_chunk_id(_row_id),
+                "body": body,
+                "record_type": "corpus",
+                "content_type": "article",
+                "rule_type": None,
+                "category_code": None,
+                "category_name": None,
+                "allowed": None,
+                "limit_pct": None,
+                "keyword": None,
+                "item_pattern": None,
+                "legal_basis": None,
+                "cited_laws": _extract_cited_laws(body),
+                "keywords": [],
+                "hash": hashlib.sha256(body.encode()).hexdigest(),
+                "metadata": json.dumps(
+                    {"source_kind": "usage_standard", "title": title},
+                    ensure_ascii=False,
+                ),
+            }
+        )
         idx += 1
 
     # 별표
@@ -759,42 +808,48 @@ def _build_corpus_rows(text: str) -> list[dict[str, Any]]:
     i = 1
     while i < len(bt_splits) - 1:
         header_raw = bt_splits[i].strip()
-        body_raw   = bt_splits[i + 1].strip() if i + 1 < len(bt_splits) else ""
-        bt_key     = re.sub(r"\s+", "", re.sub(r"[\[\]]", "", header_raw))
+        body_raw = bt_splits[i + 1].strip() if i + 1 < len(bt_splits) else ""
+        bt_key = re.sub(r"\s+", "", re.sub(r"[\[\]]", "", header_raw))
 
         if bt_key not in seen and len(body_raw) >= 20:
             seen.add(bt_key)
             first_line = body_raw.split("\n")[0][:80].strip()
             _bt_row_id = f"{_SOURCE_ID}:{bt_key}:{idx:04d}"
-            rows.append({
-                "id":           _bt_row_id,
-                "source_name":  _SOURCE_NAME,
-                "source_type":  "law",
-                "source_path":  _USAGE_STANDARD_URL,
-                "article_no":   None,
-                "paragraph_no": None,
-                "item_no":      None,
-                "section_path": f"{_LAW_PREFIX} > {bt_key}",
-                "chunk_id":     make_chunk_id(_bt_row_id),
-                "body":         body_raw,
-                "record_type":  "corpus",
-                "content_type": "guideline",
-                "rule_type":    None,
-                "category_code": None,
-                "category_name": None,
-                "allowed":      None,
-                "limit_pct":    None,
-                "keyword":      None,
-                "item_pattern": None,
-                "legal_basis":  None,
-                "cited_laws":   _extract_cited_laws(body_raw),
-                "keywords":     [],
-                "hash":         hashlib.sha256(body_raw.encode()).hexdigest(),
-                "metadata":     json.dumps(
-                    {"source_kind": "usage_standard", "section_key": bt_key, "title": first_line or bt_key},
-                    ensure_ascii=False,
-                ),
-            })
+            rows.append(
+                {
+                    "id": _bt_row_id,
+                    "source_name": _SOURCE_NAME,
+                    "source_type": "law",
+                    "source_path": _USAGE_STANDARD_URL,
+                    "article_no": None,
+                    "paragraph_no": None,
+                    "item_no": None,
+                    "section_path": f"{_LAW_PREFIX} > {bt_key}",
+                    "chunk_id": make_chunk_id(_bt_row_id),
+                    "body": body_raw,
+                    "record_type": "corpus",
+                    "content_type": "guideline",
+                    "rule_type": None,
+                    "category_code": None,
+                    "category_name": None,
+                    "allowed": None,
+                    "limit_pct": None,
+                    "keyword": None,
+                    "item_pattern": None,
+                    "legal_basis": None,
+                    "cited_laws": _extract_cited_laws(body_raw),
+                    "keywords": [],
+                    "hash": hashlib.sha256(body_raw.encode()).hexdigest(),
+                    "metadata": json.dumps(
+                        {
+                            "source_kind": "usage_standard",
+                            "section_key": bt_key,
+                            "title": first_line or bt_key,
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            )
             idx += 1
         i += 2
 
@@ -803,8 +858,8 @@ def _build_corpus_rows(text: str) -> list[dict[str, Any]]:
 
 # ── rules rows 구성 (제7조 각호 + 별표2) ─────────────────────────────────────
 
+
 def _build_rules_rows(text: str) -> list[dict[str, Any]]:
-    import json
     rows: list[dict] = []
 
     # 제7조 파싱
@@ -824,77 +879,101 @@ def _build_rules_rows(text: str) -> list[dict[str, Any]]:
                 continue
 
             ho_body = ho_splits[i + 1] if i + 1 < len(ho_splits) else ""
-            title_m = re.match(r"^([^가나다라마바사아자차카타파하]+?)(?=\s*가\.)", ho_body)
+            title_m = re.match(
+                r"^([^가나다라마바사아자차카타파하]+?)(?=\s*가\.)", ho_body
+            )
             ho_title = title_m.group(1).strip() if title_m else ho_body[:50].strip()
 
             sub_items = re.split(r"\s+(?=[가나다라마바사아자차카타파하]\.)", ho_body)
-            sub_items = [s.strip() for s in sub_items if s.strip() and len(s.strip()) > 5]
+            sub_items = [
+                s.strip() for s in sub_items if s.strip() and len(s.strip()) > 5
+            ]
 
-            cat   = _HO_TO_CAT[ho_num]
+            cat = _HO_TO_CAT[ho_num]
             basis = f"{_LAW_PREFIX} 제7조제1항제{ho_num}호"
 
             for sub_idx, item_text in enumerate(sub_items):
                 keyword = item_text[:50].split("의")[0].split("에")[0].strip()
-                rows.append(_make_rule(
-                    rule_id   = f"usage_standard:art7:ho{ho_num}:item{sub_idx}",
-                    rule_type = "allowed",
-                    cat       = cat,
-                    ho_num    = ho_num,
-                    keyword   = keyword,
-                    basis     = basis,
-                    rule_text = item_text,
-                    metadata  = {"ho_title": ho_title, "source_kind": "usage_standard"},
-                ))
+                rows.append(
+                    _make_rule(
+                        rule_id=f"usage_standard:art7:ho{ho_num}:item{sub_idx}",
+                        rule_type="allowed",
+                        cat=cat,
+                        ho_num=ho_num,
+                        keyword=keyword,
+                        basis=basis,
+                        rule_text=item_text,
+                        metadata={
+                            "ho_title": ho_title,
+                            "source_kind": "usage_standard",
+                        },
+                    )
+                )
 
-            rows.append(_make_rule(
-                rule_id   = f"usage_standard:art7:ho{ho_num}:full",
-                rule_type = "allowed",
-                cat       = cat,
-                ho_num    = ho_num,
-                keyword   = ho_title[:50],
-                basis     = basis,
-                rule_text = ho_body.strip(),
-                metadata  = {"ho_title": ho_title, "source_kind": "usage_standard", "is_full_ho": True},
-            ))
+            rows.append(
+                _make_rule(
+                    rule_id=f"usage_standard:art7:ho{ho_num}:full",
+                    rule_type="allowed",
+                    cat=cat,
+                    ho_num=ho_num,
+                    keyword=ho_title[:50],
+                    basis=basis,
+                    rule_text=ho_body.strip(),
+                    metadata={
+                        "ho_title": ho_title,
+                        "source_kind": "usage_standard",
+                        "is_full_ho": True,
+                    },
+                )
+            )
             i += 2
 
     # 별표2 파싱
     bt2_m = re.search(
         r"(?:\[별표\s*2\]|별표\s*2(?=\s))(.+?)(?=\[별표\s*3\]|별표\s*3(?=\s)|$)",
-        text, re.DOTALL
+        text,
+        re.DOTALL,
     )
     if bt2_m:
         bt2_body = bt2_m.group(1)
-        d_items  = re.findall(r"\d+\.\s+(.{10,200}?)(?=\s+\d+\.\s+|\s*$)", bt2_body)
+        d_items = re.findall(r"\d+\.\s+(.{10,200}?)(?=\s+\d+\.\s+|\s*$)", bt2_body)
         if not d_items:
             d_items = re.findall(
                 r"[가나다라마바사아자차카타파하]\.\s+(.{10,200}?)(?=\s+[가나다라마바사아자차카타파하]\.\s+|\s*$)",
-                bt2_body
+                bt2_body,
             )
         for d_idx, item_text in enumerate(d_items):
             item_text = item_text.strip()
             if len(item_text) < 5:
                 continue
-            rows.append(_make_rule(
-                rule_id   = f"usage_standard:byultable2:item{d_idx}",
-                rule_type = "disallowed",
-                cat       = None,
-                ho_num    = None,
-                keyword   = item_text[:50],
-                basis     = f"{_LAW_PREFIX} 별표 2",
-                rule_text = item_text,
-                metadata  = {"source_kind": "usage_standard"},
-            ))
+            rows.append(
+                _make_rule(
+                    rule_id=f"usage_standard:byultable2:item{d_idx}",
+                    rule_type="disallowed",
+                    cat=None,
+                    ho_num=None,
+                    keyword=item_text[:50],
+                    basis=f"{_LAW_PREFIX} 별표 2",
+                    rule_text=item_text,
+                    metadata={"source_kind": "usage_standard"},
+                )
+            )
 
     return rows
 
 
 def _make_rule(
-    rule_id: str, rule_type: str, cat: str | None, ho_num: int | None,
-    keyword: str, basis: str, rule_text: str, metadata: dict,
+    rule_id: str,
+    rule_type: str,
+    cat: str | None,
+    ho_num: int | None,
+    keyword: str,
+    basis: str,
+    rule_text: str,
+    metadata: dict,
 ) -> dict[str, Any]:
     # 조/항/호 파싱
-    art_m  = re.search(r"(제\d+조(?:의\d+)?)", basis)
+    art_m = re.search(r"(제\d+조(?:의\d+)?)", basis)
     para_m = re.search(r"(제\d+항)", basis)
     item_m = re.search(r"(제\d+호)", basis)
 
@@ -907,30 +986,30 @@ def _make_rule(
         allowed = None
 
     return {
-        "id":            rule_id,
-        "source_name":   _SOURCE_NAME,
-        "source_type":   "law",
-        "source_path":   _USAGE_STANDARD_URL,
-        "article_no":    art_m.group(1)  if art_m  else None,
-        "paragraph_no":  para_m.group(1) if para_m else None,
-        "item_no":       item_m.group(1) if item_m else None,
-        "section_path":  basis,
-        "chunk_id":      make_chunk_id(rule_id),
-        "body":          rule_text,
-        "record_type":   "rule",
-        "content_type":  None,
-        "rule_type":     rule_type,
+        "id": rule_id,
+        "source_name": _SOURCE_NAME,
+        "source_type": "law",
+        "source_path": _USAGE_STANDARD_URL,
+        "article_no": art_m.group(1) if art_m else None,
+        "paragraph_no": para_m.group(1) if para_m else None,
+        "item_no": item_m.group(1) if item_m else None,
+        "section_path": basis,
+        "chunk_id": make_chunk_id(rule_id),
+        "body": rule_text,
+        "record_type": "rule",
+        "content_type": None,
+        "rule_type": rule_type,
         "category_code": cat,
         "category_name": _CAT_NAMES.get(cat, "") if cat else None,
-        "allowed":       allowed,
-        "limit_pct":     None,
-        "keyword":       keyword,
-        "item_pattern":  None,
-        "legal_basis":   basis,
-        "cited_laws":    _extract_cited_laws(rule_text),
-        "keywords":      [],
-        "hash":          hashlib.sha256(rule_text.encode()).hexdigest(),
-        "metadata":      json.dumps(
+        "allowed": allowed,
+        "limit_pct": None,
+        "keyword": keyword,
+        "item_pattern": None,
+        "legal_basis": basis,
+        "cited_laws": _extract_cited_laws(rule_text),
+        "keywords": [],
+        "hash": hashlib.sha256(rule_text.encode()).hexdigest(),
+        "metadata": json.dumps(
             {**metadata, "category_number": ho_num},
             ensure_ascii=False,
         ),
@@ -953,61 +1032,81 @@ def _build_profile_rows(seed_path: Path = _DEFAULT_SEED_PATH) -> list[dict[str, 
 
     # validator_synonyms → global scope, profile_key = 동의어 대표어
     for term, synonyms in config.get("validator_synonyms", {}).items():
-        rows.append({
-            "profile_id":    f"global:validator_synonym:{term}",
-            "profile_scope": "global",
-            "category_code": None,
-            "profile_key":   term,
-            "values_json":   json.dumps(synonyms, ensure_ascii=False),
-            "metadata":      json.dumps({"original_scope": "validator_synonym"}, ensure_ascii=False),
-        })
+        rows.append(
+            {
+                "profile_id": f"global:validator_synonym:{term}",
+                "profile_scope": "global",
+                "category_code": None,
+                "profile_key": term,
+                "values_json": json.dumps(synonyms, ensure_ascii=False),
+                "metadata": json.dumps(
+                    {"original_scope": "validator_synonym"}, ensure_ascii=False
+                ),
+            }
+        )
 
     # validator_profiles → category scope, profile_key = allow_terms / disallow_terms
     for cat_code, profile in config.get("validator_profiles", {}).items():
         for key, values in profile.items():
-            rows.append({
-                "profile_id":    f"category:{cat_code}:vp:{key}",
-                "profile_scope": "category",
-                "category_code": cat_code,
-                "profile_key":   key,
-                "values_json":   json.dumps(values, ensure_ascii=False),
-                "metadata":      json.dumps({"original_scope": "validator_profile"}, ensure_ascii=False),
-            })
+            rows.append(
+                {
+                    "profile_id": f"category:{cat_code}:vp:{key}",
+                    "profile_scope": "category",
+                    "category_code": cat_code,
+                    "profile_key": key,
+                    "values_json": json.dumps(values, ensure_ascii=False),
+                    "metadata": json.dumps(
+                        {"original_scope": "validator_profile"}, ensure_ascii=False
+                    ),
+                }
+            )
 
     # classifier_profiles → category scope, profile_key = strong_terms / medium_terms / ...
     for cat_code, profile in config.get("classifier_profiles", {}).items():
         for key, values in profile.items():
-            rows.append({
-                "profile_id":    f"category:{cat_code}:cp:{key}",
-                "profile_scope": "category",
-                "category_code": cat_code,
-                "profile_key":   key,
-                "values_json":   json.dumps(values, ensure_ascii=False),
-                "metadata":      json.dumps({"original_scope": "classifier_profile"}, ensure_ascii=False),
-            })
+            rows.append(
+                {
+                    "profile_id": f"category:{cat_code}:cp:{key}",
+                    "profile_scope": "category",
+                    "category_code": cat_code,
+                    "profile_key": key,
+                    "values_json": json.dumps(values, ensure_ascii=False),
+                    "metadata": json.dumps(
+                        {"original_scope": "classifier_profile"}, ensure_ascii=False
+                    ),
+                }
+            )
 
     # generic_item_policies → item scope
     for key, policy in config.get("generic_item_policies", {}).items():
-        rows.append({
-            "profile_id":    f"item:policy:{key}",
-            "profile_scope": "item",
-            "category_code": None,
-            "profile_key":   key,
-            "values_json":   json.dumps(policy, ensure_ascii=False),
-            "metadata":      json.dumps({"original_scope": "generic_item_policy"}, ensure_ascii=False),
-        })
+        rows.append(
+            {
+                "profile_id": f"item:policy:{key}",
+                "profile_scope": "item",
+                "category_code": None,
+                "profile_key": key,
+                "values_json": json.dumps(policy, ensure_ascii=False),
+                "metadata": json.dumps(
+                    {"original_scope": "generic_item_policy"}, ensure_ascii=False
+                ),
+            }
+        )
 
     return rows
 
 
 def _extract_cited_laws(text: str) -> list[str]:
     found: set[str] = set()
-    for pat in [r"제\d+조(?:의\d+)?(?:제\d+항(?:제\d+호(?:[가-하]목)?)?)?", r"별표\s*\d+(?:의\d+)?"]:
+    for pat in [
+        r"제\d+조(?:의\d+)?(?:제\d+항(?:제\d+호(?:[가-하]목)?)?)?",
+        r"별표\s*\d+(?:의\d+)?",
+    ]:
         found.update(re.findall(pat, text))
     return sorted(found)
 
 
 # ── Qdrant 기존 포인트 삭제 ──────────────────────────────────────────────────
+
 
 def _delete_usage_standard_points(collection_name: str) -> None:
     from qdrant_client import QdrantClient
@@ -1017,9 +1116,14 @@ def _delete_usage_standard_points(collection_name: str) -> None:
     try:
         client.delete(
             collection_name=collection_name,
-            points_selector=Filter(must=[
-                FieldCondition(key="metadata.source_type", match=MatchValue(value="usage_standard"))
-            ]),
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="metadata.source_type",
+                        match=MatchValue(value="usage_standard"),
+                    )
+                ]
+            ),
         )
         log.info("기존 usage_standard 포인트 삭제 완료")
     except Exception as e:
@@ -1027,6 +1131,7 @@ def _delete_usage_standard_points(collection_name: str) -> None:
 
 
 # ── 전체 파이프라인 ──────────────────────────────────────────────────────────
+
 
 def run_usage_standard_pipeline(
     collection_name: str = DEFAULT_COLLECTION,
@@ -1074,73 +1179,90 @@ def run_usage_standard_pipeline(
         for row in master_rows:
             breadcrumb = row.get("section_path") or row["source_name"]
             page_content = f"{breadcrumb}\n\n{row['body']}"
-            lc_docs.append(LCDocument(
-                page_content=page_content,
-                metadata={
-                    "source":      row["source_name"],
-                    "source_type": "usage_standard",
-                    "header_1":    _LAW_PREFIX,
-                    "article_no":  row.get("article_no"),
-                    "record_type": row["record_type"],
-                    "master_id":   row["id"],
-                    "chunk_id":    row["chunk_id"],
-                },
-            ))
+            lc_docs.append(
+                LCDocument(
+                    page_content=page_content,
+                    metadata={
+                        "source": row["source_name"],
+                        "source_type": "usage_standard",
+                        "header_1": _LAW_PREFIX,
+                        "article_no": row.get("article_no"),
+                        "record_type": row["record_type"],
+                        "master_id": row["id"],
+                        "chunk_id": row["chunk_id"],
+                    },
+                )
+            )
             chunk_ids.append(row["chunk_id"])
 
         log.info("Document 변환 완료: %d개", len(lc_docs))
         _delete_usage_standard_points(collection_name)
-        upsert_with_ids(collection_name=collection_name, documents=lc_docs, ids=chunk_ids)
+        upsert_with_ids(
+            collection_name=collection_name, documents=lc_docs, ids=chunk_ids
+        )
         qdrant_count = len(lc_docs)
         log.info("Qdrant 적재 완료: %d개 (chunk_id 연결)", qdrant_count)
 
-    master_count  = 0
-    corpus_count  = 0
-    rules_count   = 0
+    master_count = 0
+    corpus_count = 0
+    rules_count = 0
     profile_count = 0
 
     if not skip_rdb:
-        rdb_result    = upsert_to_rdb(
+        rdb_result = upsert_to_rdb(
             raw_text,
             database_url=database_url,
             _rows=master_rows,
             _profiles=[] if skip_profiles else profile_rows,
         )
-        master_count  = rdb_result["master"]
-        corpus_count  = rdb_result["corpus"]
-        rules_count   = rdb_result["rules"]
+        master_count = rdb_result["master"]
+        corpus_count = rdb_result["corpus"]
+        rules_count = rdb_result["rules"]
         profile_count = rdb_result["profiles"]
         log.info(
             "적재 완료 → Qdrant: %d개, Master: %d개 (Corpus: %d, Rules: %d), Profiles: %d개",
-            qdrant_count, master_count, corpus_count, rules_count, profile_count,
+            qdrant_count,
+            master_count,
+            corpus_count,
+            rules_count,
+            profile_count,
         )
 
     return {
-        "qdrant":    qdrant_count,
-        "master":    master_count,
-        "corpus":    corpus_count,
-        "rules":     rules_count,
-        "profiles":  profile_count,
+        "qdrant": qdrant_count,
+        "master": master_count,
+        "corpus": corpus_count,
+        "rules": rules_count,
+        "profiles": profile_count,
     }
 
 
 if __name__ == "__main__":
     import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    parser = argparse.ArgumentParser(description="산안비 사용기준 전문 → Qdrant + RDB 적재")
+    parser = argparse.ArgumentParser(
+        description="산안비 사용기준 전문 → Qdrant + RDB 적재"
+    )
     parser.add_argument("--collection", default=DEFAULT_COLLECTION)
     parser.add_argument("--skip-qdrant", action="store_true")
     parser.add_argument("--skip-rdb", action="store_true")
-    parser.add_argument("--force-refresh", action="store_true",
-                        help="24시간 캐시를 무시하고 law.go.kr 재수집")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="마크다운 변환만 출력, 적재 없음 (캐시 우선 사용)")
+    parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="24시간 캐시를 무시하고 law.go.kr 재수집",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="마크다운 변환만 출력, 적재 없음 (캐시 우선 사용)",
+    )
     args = parser.parse_args()
 
     if args.dry_run:
         raw = fetch_usage_standard(force_refresh=args.force_refresh)
-        md  = convert_to_markdown(raw)
+        md = convert_to_markdown(raw)
         print(md)
         print(f"\n--- 총 {len(md)}자 ---")
     else:
