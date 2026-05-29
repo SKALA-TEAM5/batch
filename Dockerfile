@@ -7,7 +7,15 @@ ENV PYTHONUNBUFFERED=1
 ENV PATH="/app/.venv/bin:${PATH}"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
