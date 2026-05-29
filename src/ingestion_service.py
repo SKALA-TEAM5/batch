@@ -29,6 +29,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -78,6 +79,47 @@ def _save_state(collection: str, result: dict) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _sync_pdf_files_from_minio(data_dir: str) -> int:
+    endpoint = os.environ.get("BATCH_MINIO_ENDPOINT") or os.environ.get("APP_MINIO_ENDPOINT", "")
+    bucket = os.environ.get("BATCH_MINIO_BUCKET") or os.environ.get("APP_MINIO_BUCKET", "")
+    access_key = os.environ.get("BATCH_MINIO_ACCESS_KEY") or os.environ.get("APP_MINIO_ACCESS_KEY", "")
+    secret_key = os.environ.get("BATCH_MINIO_SECRET_KEY") or os.environ.get("APP_MINIO_SECRET_KEY", "")
+    prefix = os.environ.get("BATCH_MINIO_DATA_PREFIX", "data/").lstrip("/")
+
+    if not all([endpoint, bucket, access_key, secret_key]):
+        log.info("MinIO PDF 동기화 건너뜀 — endpoint/bucket/key 설정이 없습니다.")
+        return 0
+
+    from minio import Minio
+
+    parsed = urlparse(endpoint)
+    secure = parsed.scheme == "https"
+    netloc = parsed.netloc if parsed.netloc else parsed.path
+    if not netloc:
+        raise ValueError("MinIO endpoint is invalid.")
+
+    target_dir = Path(data_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    client = Minio(
+        netloc,
+        access_key=access_key,
+        secret_key=secret_key,
+        secure=secure,
+    )
+    count = 0
+    for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
+        if obj.is_dir or not obj.object_name.lower().endswith(".pdf"):
+            continue
+        target_path = target_dir / Path(obj.object_name).name
+        client.fget_object(bucket, obj.object_name, str(target_path))
+        count += 1
+        print(f"  [MinIO → data] {obj.object_name} -> {target_path}")
+
+    print(f"  [MinIO → data] PDF {count}개 동기화 완료 (bucket={bucket}, prefix={prefix})")
+    return count
 
 
 # ── 단일 PDF 파이프라인 ───────────────────────────────────────────
@@ -159,6 +201,8 @@ def run_pipeline(
         if state:
             log.info("이미 인덱싱됨 — 스킵 (force=True 로 재실행 가능)")
             return {**state, "skipped": True}
+
+    _sync_pdf_files_from_minio(data_dir)
 
     # ── PDF 적재 ─────────────────────────────────────────────────
     pdf_chunks: list = []

@@ -15,6 +15,14 @@ POSTGRES_DB=safety
 
 `DATABASE_URL`은 Kubernetes Job 시작 시 `team5-postgres-secret`의 `LAW_APP_USER`와 `LAW_APP_PASSWORD`로 조립합니다.
 
+초기 적재(`ingest`)는 MinIO의 `safety-files/data/` prefix에서 PDF 파일을 내려받아 `data/` 디렉토리에 동기화한 뒤 처리합니다.
+
+```env
+APP_MINIO_ENDPOINT=http://team5-minio:9000
+APP_MINIO_BUCKET=safety-files
+BATCH_MINIO_DATA_PREFIX=data/
+```
+
 ## 주요 명령
 
 초기 적재:
@@ -41,6 +49,11 @@ kubectl port-forward svc/team5-qdrant 6333:6333 -n skala3-finalproj-class2-team5
 ```env
 QDRANT_URL=http://localhost:6333
 DATABASE_URL=postgresql://safety_law_app:<password>@localhost:5433/safety
+APP_MINIO_ENDPOINT=http://localhost:9000
+APP_MINIO_BUCKET=safety-files
+APP_MINIO_ACCESS_KEY=minioadmin
+APP_MINIO_SECRET_KEY=minioadmin
+BATCH_MINIO_DATA_PREFIX=data/
 ```
 
 ## 배포/실행

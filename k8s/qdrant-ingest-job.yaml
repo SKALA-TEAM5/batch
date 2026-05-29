@@ -32,6 +32,12 @@ spec:
               value: safety
             - name: QDRANT_COLLECTION
               value: legal_documents
+            - name: APP_MINIO_ENDPOINT
+              value: http://team5-minio:9000
+            - name: APP_MINIO_BUCKET
+              value: safety-files
+            - name: BATCH_MINIO_DATA_PREFIX
+              value: data/
             - name: LAW_APP_USER
               valueFrom:
                 secretKeyRef:
@@ -47,6 +53,16 @@ spec:
                 secretKeyRef:
                   name: team5-batch-secret
                   key: LAW_API_KEY
+            - name: APP_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: team5-minio-secret
+                  key: APP_MINIO_ACCESS_KEY
+            - name: APP_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: team5-minio-secret
+                  key: APP_MINIO_SECRET_KEY
           command:
             - sh
             - -c
