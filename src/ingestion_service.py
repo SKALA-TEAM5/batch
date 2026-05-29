@@ -27,6 +27,9 @@ Public API:
 import json
 import logging
 import os
+import hashlib
+import shutil
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -113,13 +116,41 @@ def _sync_pdf_files_from_minio(data_dir: str) -> int:
     for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
         if obj.is_dir or not obj.object_name.lower().endswith(".pdf"):
             continue
-        target_path = target_dir / Path(obj.object_name).name
-        client.fget_object(bucket, obj.object_name, str(target_path))
+        target_path = _safe_pdf_download_path(target_dir, obj.object_name)
+        response = client.get_object(bucket, obj.object_name)
+        try:
+            with target_path.open("wb") as file:
+                shutil.copyfileobj(response, file)
+        finally:
+            response.close()
+            response.release_conn()
         count += 1
         print(f"  [MinIO → data] {obj.object_name} -> {target_path}")
 
     print(f"  [MinIO → data] PDF {count}개 동기화 완료 (bucket={bucket}, prefix={prefix})")
     return count
+
+
+def _safe_pdf_download_path(target_dir: Path, object_name: str) -> Path:
+    original_name = unicodedata.normalize("NFC", Path(object_name).name)
+    stem = Path(original_name).stem or "document"
+    digest = hashlib.sha1(object_name.encode("utf-8")).hexdigest()[:10]
+    suffix = f"-{digest}.pdf"
+    max_stem_bytes = 120 - len(suffix.encode("utf-8"))
+    safe_stem = _truncate_utf8(stem, max_stem_bytes).strip(" ._-") or "document"
+    return target_dir / f"{safe_stem}{suffix}"
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    result: list[str] = []
+    used = 0
+    for char in text:
+        char_len = len(char.encode("utf-8"))
+        if used + char_len > max_bytes:
+            break
+        result.append(char)
+        used += char_len
+    return "".join(result)
 
 
 # ── 단일 PDF 파이프라인 ───────────────────────────────────────────
