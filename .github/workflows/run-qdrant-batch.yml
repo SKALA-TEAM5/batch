@@ -6,11 +6,16 @@ on:
       mode:
         description: Batch mode
         required: true
-        default: ingest
+        default: ingest-pdfs
         type: choice
         options:
           - ingest
+          - ingest-pdfs
           - refresh
+      pdf_objects:
+        description: Comma-separated MinIO object names for ingest-pdfs mode
+        required: false
+        default: ""
 
 env:
   AWS_REGION: ap-northeast-2
@@ -22,7 +27,7 @@ env:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -79,12 +84,45 @@ jobs:
           if [ "${{ inputs.mode }}" = "refresh" ]; then
             JOB_NAME=team5-qdrant-refresh
             JOB_FILE=k8s/qdrant-refresh-job.yaml
+            kubectl delete job "${JOB_NAME}" --ignore-not-found=true
+            kubectl apply -f "${JOB_FILE}"
+            kubectl get job "${JOB_NAME}" -o wide
+            kubectl get pods -l job-name="${JOB_NAME}" -o wide
+            echo "Refresh job triggered. Follow logs with:"
+            echo "kubectl logs -f job/${JOB_NAME} -n ${K8S_NAMESPACE}"
+          elif [ "${{ inputs.mode }}" = "ingest-pdfs" ]; then
+            if [ -z "${{ inputs.pdf_objects }}" ]; then
+              echo "pdf_objects is required for ingest-pdfs mode."
+              exit 1
+            fi
+
+            IFS=',' read -ra OBJECTS <<< "${{ inputs.pdf_objects }}"
+            INDEX=0
+            for OBJECT in "${OBJECTS[@]}"; do
+              INDEX=$((INDEX + 1))
+              OBJECT="$(echo "${OBJECT}" | sed 's/^ *//;s/ *$//')"
+              if [ -z "${OBJECT}" ]; then
+                continue
+              fi
+              JOB_NAME="team5-qdrant-ingest-pdf-${INDEX}"
+              kubectl delete job "${JOB_NAME}" --ignore-not-found=true
+              JOB_NAME="${JOB_NAME}" \
+              IMAGE="${{ secrets.HARBOR_REGISTRY }}/${{ secrets.HARBOR_PROJECT }}/team5-batch:latest" \
+              MINIO_OBJECT_NAME="${OBJECT}" \
+              python -c 'import os, pathlib; text = pathlib.Path("k8s/qdrant-ingest-pdf-job.template.yaml").read_text(); text = text.replace("__JOB_NAME__", os.environ["JOB_NAME"]).replace("__IMAGE__", os.environ["IMAGE"]).replace("__MINIO_OBJECT_NAME__", os.environ["MINIO_OBJECT_NAME"]); pathlib.Path("/tmp/qdrant-ingest-pdf-job.yaml").write_text(text)'
+              kubectl apply -f /tmp/qdrant-ingest-pdf-job.yaml
+              kubectl get job "${JOB_NAME}" -o wide
+            done
+            kubectl get pods -l job=qdrant-ingest-pdf -o wide
+            echo "PDF ingest jobs triggered. Follow logs with:"
+            echo "kubectl logs -f job/team5-qdrant-ingest-pdf-1 -n ${K8S_NAMESPACE}"
           else
             JOB_NAME=team5-qdrant-ingest
             JOB_FILE=k8s/qdrant-ingest-job.yaml
+            kubectl delete job "${JOB_NAME}" --ignore-not-found=true
+            kubectl apply -f "${JOB_FILE}"
+            kubectl get job "${JOB_NAME}" -o wide
+            kubectl get pods -l job-name="${JOB_NAME}" -o wide
+            echo "Full ingest job triggered. Follow logs with:"
+            echo "kubectl logs -f job/${JOB_NAME} -n ${K8S_NAMESPACE}"
           fi
-
-          kubectl delete job "${JOB_NAME}" --ignore-not-found=true
-          kubectl apply -f "${JOB_FILE}"
-          kubectl wait --for=condition=complete "job/${JOB_NAME}" --timeout=10800s
-          kubectl logs "job/${JOB_NAME}"

@@ -84,7 +84,7 @@ def _save_state(collection: str, result: dict) -> None:
     )
 
 
-def _sync_pdf_files_from_minio(data_dir: str) -> int:
+def _sync_pdf_files_from_minio(data_dir: str, object_name: str | None = None) -> int:
     endpoint = os.environ.get("BATCH_MINIO_ENDPOINT") or os.environ.get("APP_MINIO_ENDPOINT", "")
     bucket = os.environ.get("BATCH_MINIO_BUCKET") or os.environ.get("APP_MINIO_BUCKET", "")
     access_key = os.environ.get("BATCH_MINIO_ACCESS_KEY") or os.environ.get("APP_MINIO_ACCESS_KEY", "")
@@ -113,8 +113,13 @@ def _sync_pdf_files_from_minio(data_dir: str) -> int:
         secure=secure,
     )
     count = 0
-    for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
-        if obj.is_dir or not obj.object_name.lower().endswith(".pdf"):
+    objects = (
+        [client.stat_object(bucket, object_name)]
+        if object_name
+        else client.list_objects(bucket, prefix=prefix, recursive=True)
+    )
+    for obj in objects:
+        if getattr(obj, "is_dir", False) or not obj.object_name.lower().endswith(".pdf"):
             continue
         target_path = _safe_pdf_download_path(target_dir, obj.object_name)
         response = client.get_object(bucket, obj.object_name)
@@ -201,6 +206,8 @@ def run_pipeline(
     skip_law_api: bool = False,
     skip_usage_standard: bool = False,
     database_url: str | None = None,
+    minio_object: str | None = None,
+    ignore_state: bool = False,
 ) -> dict:
     """
     완전한 인덱싱 파이프라인.
@@ -227,13 +234,13 @@ def run_pipeline(
         reset_collection(collection)
 
     # 중복 실행 방지 (force=False 일 때)
-    if not force:
+    if not force and not ignore_state:
         state = _load_state(collection)
         if state:
             log.info("이미 인덱싱됨 — 스킵 (force=True 로 재실행 가능)")
             return {**state, "skipped": True}
 
-    _sync_pdf_files_from_minio(data_dir)
+    _sync_pdf_files_from_minio(data_dir, minio_object)
 
     # ── PDF 적재 ─────────────────────────────────────────────────
     pdf_chunks: list = []
@@ -396,6 +403,8 @@ if __name__ == "__main__":
     parser.add_argument("--reconvert", action="store_true")
     parser.add_argument("--skip-law-api", action="store_true")
     parser.add_argument("--skip-usage-standard", action="store_true")
+    parser.add_argument("--minio-object", help="MinIO object name for a single PDF ingest")
+    parser.add_argument("--ignore-state", action="store_true", help="Ignore local indexing state cache")
     args = parser.parse_args()
 
     result = run_pipeline(
@@ -407,5 +416,7 @@ if __name__ == "__main__":
         reconvert=args.reconvert,
         skip_law_api=args.skip_law_api,
         skip_usage_standard=args.skip_usage_standard,
+        minio_object=args.minio_object,
+        ignore_state=args.ignore_state,
     )
     print(result)
