@@ -38,6 +38,14 @@ spec:
               value: safety-files
             - name: BATCH_MINIO_DATA_PREFIX
               value: data/
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+            - name: OMP_NUM_THREADS
+              value: "1"
+            - name: MKL_NUM_THREADS
+              value: "1"
+            - name: MALLOC_ARENA_MAX
+              value: "2"
             - name: LAW_APP_USER
               valueFrom:
                 secretKeyRef:
@@ -71,8 +79,8 @@ spec:
               python -m src.ingestion_service --collection "${QDRANT_COLLECTION}" --force
           resources:
             requests:
-              cpu: "1"
-              memory: 3Gi
-            limits:
               cpu: "2"
               memory: 6Gi
+            limits:
+              cpu: "4"
+              memory: 12Gi
