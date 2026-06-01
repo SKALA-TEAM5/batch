@@ -31,6 +31,15 @@ BATCH_MINIO_DATA_PREFIX=data/
 python -m src.ingestion_service --collection legal_documents --force
 ```
 
+Safety Doc Agent 참고자료 적재:
+
+```bash
+python -m src.safety_doc_reference_ingest \
+  --collection safety-guide \
+  --prefix safety-doc-agent/ \
+  --force
+```
+
 증분 갱신:
 
 ```bash
@@ -62,12 +71,14 @@ GitHub Actions에서 이미지를 빌드한 뒤, 수동 실행으로 Kubernetes 
 
 - `ingest`: 전체 초기 적재
 - `refresh`: 변경분 갱신
+- `safety-doc-reference`: MinIO `safety-files/safety-doc-agent/` 마크다운을 `safety-guide` Qdrant collection으로 적재
 
 Actions는 Job을 생성한 뒤 종료합니다. PDF 변환은 Kubernetes에서 계속 실행되므로 로컬에서 로그를 확인합니다.
 
 ```bash
 kubectl get jobs,pods -n skala3-finalproj-class2-team5 -l app=team5-batch
 kubectl logs -f job/team5-qdrant-ingest -n skala3-finalproj-class2-team5
+kubectl logs -f job/team5-safety-doc-reference-ingest -n skala3-finalproj-class2-team5
 ```
 
 Actions Secret에 아래 값을 등록해야 합니다.

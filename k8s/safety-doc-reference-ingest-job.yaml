@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: team5-safety-doc-reference-ingest
+  namespace: skala3-finalproj-class2-team5
+  labels:
+    app: team5-batch
+    job: safety-doc-reference-ingest
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: team5-batch
+        job: safety-doc-reference-ingest
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: team5-harbor-secret
+      containers:
+        - name: batch
+          image: amdp-registry.skala-ai.com/skala26a-ai2/team5-batch:latest
+          imagePullPolicy: Always
+          env:
+            - name: QDRANT_URL
+              value: http://team5-qdrant:6333
+            - name: SAFETY_DOC_COLLECTION
+              value: safety-guide
+            - name: APP_MINIO_ENDPOINT
+              value: http://team5-minio:9000
+            - name: APP_MINIO_BUCKET
+              value: safety-files
+            - name: BATCH_SAFETY_DOC_PREFIX
+              value: safety-doc-agent/
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+            - name: OMP_NUM_THREADS
+              value: "1"
+            - name: MKL_NUM_THREADS
+              value: "1"
+            - name: APP_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: team5-minio-secret
+                  key: APP_MINIO_ACCESS_KEY
+            - name: APP_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: team5-minio-secret
+                  key: APP_MINIO_SECRET_KEY
+          command:
+            - sh
+            - -c
+            - |
+              python -m src.safety_doc_reference_ingest \
+                --collection "${SAFETY_DOC_COLLECTION}" \
+                --prefix "${BATCH_SAFETY_DOC_PREFIX}" \
+                --force
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi

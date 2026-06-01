@@ -11,6 +11,7 @@ on:
         options:
           - ingest
           - refresh
+          - safety-doc-reference
 
 env:
   AWS_REGION: ap-northeast-2
@@ -84,6 +85,15 @@ jobs:
             kubectl get job "${JOB_NAME}" -o wide
             kubectl get pods -l job-name="${JOB_NAME}" -o wide
             echo "Refresh job triggered. Follow logs with:"
+            echo "kubectl logs -f job/${JOB_NAME} -n ${K8S_NAMESPACE}"
+          elif [ "${{ inputs.mode }}" = "safety-doc-reference" ]; then
+            JOB_NAME=team5-safety-doc-reference-ingest
+            JOB_FILE=k8s/safety-doc-reference-ingest-job.yaml
+            kubectl delete job "${JOB_NAME}" --ignore-not-found=true
+            kubectl apply -f "${JOB_FILE}"
+            kubectl get job "${JOB_NAME}" -o wide
+            kubectl get pods -l job-name="${JOB_NAME}" -o wide
+            echo "Safety doc reference ingest job triggered. Follow logs with:"
             echo "kubectl logs -f job/${JOB_NAME} -n ${K8S_NAMESPACE}"
           else
             JOB_NAME=team5-qdrant-ingest
