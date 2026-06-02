@@ -589,7 +589,8 @@ def articles_to_documents(articles: list[dict[str, Any]]) -> list[Document]:
                     "header_1":     law_name,
                     "header_2":     h2,
                     "breadcrumb":   breadcrumb,
-                    "source_type":  "law_article",
+                    "source_type":  "law_article",  # classifier 필터 의존 — 변경 금지
+                    "source_kind":  "law_api",      # Stage 2 식별자 (Stage 3: usage_standard)
                     "record_type":  "corpus",
                     "law_name":     law_name,
                     "article_no":   article_no,
