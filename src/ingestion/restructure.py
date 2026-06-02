@@ -28,6 +28,9 @@ def _classify_heading(text: str) -> int:
         return 2
     if re.match(r"^제\d+장\s", t):
         return 2
+    # 해설집 로마 숫자 대단원 (Ⅰ 총칙, Ⅱ 계상 등)
+    if re.match(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]", t):
+        return 2
 
     if re.match(r"^[※*]", t):
         return 5
