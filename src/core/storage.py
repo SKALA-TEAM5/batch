@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_TTL = 7 * 24 * 3600
 DEFAULT_DIR = Path(".cache")
-DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DEFAULT_EMBED_MODEL = "jhgan/ko-sroberta-multitask"
 DEFAULT_QDRANT_URL = "http://localhost:6333"
 DEFAULT_COLLECTION = "legal_documents"
 
