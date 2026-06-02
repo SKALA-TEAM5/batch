@@ -223,6 +223,12 @@ def run_pipeline(
     )
     if force:
         reconvert = True  # force=True 면 PDF 변환도 강제 재실행
+        # outputs/ 초기화 — 이전 변환 결과 제거 (old/new 버전 혼재 방지)
+        out_path = Path(output_dir)
+        if out_path.exists():
+            import shutil
+            shutil.rmtree(out_path)
+            log.info("force=True — outputs/ 초기화 완료")
         if not skip_vector_db:
             log.info("force=True — Vector DB 컬렉션 초기화")
             reset_collection(collection)
