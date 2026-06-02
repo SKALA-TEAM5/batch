@@ -9,6 +9,11 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from minio import Minio
