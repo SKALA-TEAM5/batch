@@ -48,59 +48,103 @@ def _api_key() -> str:
     """LAW_API_KEY를 호출 시점에 읽는다 (dotenv 로드 후에도 반영됨)."""
     return os.environ.get("LAW_API_KEY", "")
 
+
 # ── 수집 대상 법령 및 조문 ──────────────────────────────────────────────────
 # key: 법령명 (law.go.kr 검색어와 동일하게)
 # value: 수집할 조문번호 리스트 (문자열, "128의2" 형태도 허용)
 TARGET_LAWS: dict[str, list[str]] = {
     "산업안전보건법": [
-        "17", "18",          # 안전관리자·보건관리자 선임
-        "24",                # 산업안전보건위원회
-        "29", "30", "31", "32",  # 안전보건교육
-        "36",                # 위험성평가
-        "42",                # 유해위험방지계획서
-        "47",                # 안전보건진단
-        "63", "64", "65", "66",  # 도급인 안전보건 조치 (하청 현장 산안비 적용 범위)
-        "69", "72",          # 산안비 계상
-        "73", "74",          # 건설재해예방전문지도기관
-        "75",                # 노사협의체
-        "76",                # 기계·기구 대여자 조치 (장비 임대 비용)
-        "80", "81", "82", "83", "84", "85", "86",  # 유해위험기계 안전인증·자율안전확인
-        "120", "121", "122", "123", "124", "125", "126", "127", "128", "129",  # 석면·작업환경·휴게시설·건강진단
+        "17",
+        "18",  # 안전관리자·보건관리자 선임
+        "24",  # 산업안전보건위원회
+        "29",
+        "30",
+        "31",
+        "32",  # 안전보건교육
+        "36",  # 위험성평가
+        "42",  # 유해위험방지계획서
+        "47",  # 안전보건진단
+        "63",
+        "64",
+        "65",
+        "66",  # 도급인 안전보건 조치 (하청 현장 산안비 적용 범위)
+        "69",
+        "72",  # 산안비 계상
+        "73",
+        "74",  # 건설재해예방전문지도기관
+        "75",  # 노사협의체
+        "76",  # 기계·기구 대여자 조치 (장비 임대 비용)
+        "80",
+        "81",
+        "82",
+        "83",
+        "84",
+        "85",
+        "86",  # 유해위험기계 안전인증·자율안전확인
+        "120",
+        "121",
+        "122",
+        "123",
+        "124",
+        "125",
+        "126",
+        "127",
+        "128",
+        "129",  # 석면·작업환경·휴게시설·건강진단
     ],
     "산업안전보건법 시행령": [
-        "15", "16",          # 안전관리자 선임 기준
-        "18", "22",          # 안전관리자·보건관리자 업무
-        "52", "53", "54", "55",  # 위험성평가 세부 기준
-        "59", "60",          # 안전보건교육 기준
-        "67", "68",          # 건설재해예방전문지도기관 기준 (CAT_07)
-        "74", "77",          # 보호구
+        "15",
+        "16",  # 안전관리자 선임 기준
+        "18",
+        "22",  # 안전관리자·보건관리자 업무
+        "52",
+        "53",
+        "54",
+        "55",  # 위험성평가 세부 기준
+        "59",
+        "60",  # 안전보건교육 기준
+        "67",
+        "68",  # 건설재해예방전문지도기관 기준 (CAT_07)
+        "74",
+        "77",  # 보호구
     ],
     "산업안전보건법 시행규칙": [
-        "29", "30", "31", "32", "33", "34", "35",  # 안전보건교육 세부 기준 (CAT_05)
-        "89",                # 사용방법
-        "97", "98", "99", "100",  # 보호구 지급 기준 (CAT_03)
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",  # 안전보건교육 세부 기준 (CAT_05)
+        "89",  # 사용방법
+        "97",
+        "98",
+        "99",
+        "100",  # 보호구 지급 기준 (CAT_03)
     ],
     "중대재해 처벌 등에 관한 법률 시행령": [
-        "4",                 # 안전보건관리체계 구축 의무
+        "4",  # 안전보건관리체계 구축 의무
     ],
     "건설기술 진흥법": [
-        "2", "62의3",        # 감리자 정의 + 스마트 안전장비
+        "2",
+        "62의3",  # 감리자 정의 + 스마트 안전장비
     ],
     "건축법": [
-        "2",                 # 감리자 범위
+        "2",  # 감리자 범위
     ],
     "응급의료에 관한 법률": [
-        "14",                # 응급처치 교육비
+        "14",  # 응급처치 교육비
     ],
     "감염병의 예방 및 관리에 관한 법률": [
-        "2",                 # 마스크·손소독제 비용
+        "2",  # 마스크·손소독제 비용
     ],
 }
 
 # key: 법령명, value: 수집할 별표 번호
 TARGET_LAW_APPENDICES: dict[str, list[str]] = {
     "산업안전보건법 시행규칙": [
-        "4", "5",            # 안전보건교육 시간·내용
+        "4",
+        "5",  # 안전보건교육 시간·내용
     ],
 }
 
@@ -108,10 +152,13 @@ TARGET_LAW_APPENDICES: dict[str, list[str]] = {
 # None이면 해당 행정규칙의 조문형식 본문 전체를 수집한다.
 TARGET_ADMIN_RULES: dict[str, list[str] | None] = {
     "산업재해예방시설자금 융자금 지원사업 및 보조금 지급사업 운영규정": [
-        "2",                 # 스마트안전장비 지원사업 정의
+        "2",  # 스마트안전장비 지원사업 정의
     ],
     "예정가격 작성기준": [
-        "15", "17", "18", "19",  # 공사원가·재료비·노무비·경비
+        "15",
+        "17",
+        "18",
+        "19",  # 공사원가·재료비·노무비·경비
     ],
     "지방자치단체 입찰 및 계약집행기준": None,  # API 본문 제공 시 전체 수집
 }
@@ -119,7 +166,10 @@ TARGET_ADMIN_RULES: dict[str, list[str] | None] = {
 
 # ── API 호출 헬퍼 ────────────────────────────────────────────────────────────
 
-def _get(endpoint: str, params: dict, *, retries: int = 3, retry_delay: float = 3.0) -> dict:
+
+def _get(
+    endpoint: str, params: dict, *, retries: int = 3, retry_delay: float = 3.0
+) -> dict:
     """법제처 API GET 요청. 실패 시 최대 retries회 재시도 후 빈 딕셔너리 반환."""
     params.update({"OC": _api_key(), "type": "JSON"})
     last_err: Exception | None = None
@@ -134,13 +184,19 @@ def _get(endpoint: str, params: dict, *, retries: int = 3, retry_delay: float = 
                 wait = retry_delay * (attempt + 1)
                 log.warning(
                     "법제처 API 요청 실패 (시도 %d/%d, %.1fs 후 재시도): endpoint=%s err=%s",
-                    attempt + 1, retries, wait, endpoint, e,
+                    attempt + 1,
+                    retries,
+                    wait,
+                    endpoint,
+                    e,
                 )
                 time.sleep(wait)
             else:
                 log.warning(
                     "법제처 API 요청 실패: endpoint=%s params=%s err=%s",
-                    endpoint, params, last_err,
+                    endpoint,
+                    params,
+                    last_err,
                 )
     return {}
 
@@ -249,7 +305,9 @@ def _fetch_law_by_mst(mst: str) -> tuple[str, list[dict], list[dict], dict[str, 
     return law_name, articles_raw, appendices_raw, basic_info
 
 
-def _fetch_admrul_by_seq(admrul_seq: str) -> tuple[str, list[str], list[dict], dict[str, Any]]:
+def _fetch_admrul_by_seq(
+    admrul_seq: str,
+) -> tuple[str, list[str], list[dict], dict[str, Any]]:
     """행정규칙 일련번호로 본문 조회 → (행정규칙명, 조문내용, 별표 리스트, 기본정보) 반환."""
     data = _get("lawService.do", {"target": "admrul", "ID": admrul_seq})
     service = data.get("AdmRulService") or {}
@@ -311,7 +369,9 @@ def _make_appendix_record(
     basic_info: dict[str, Any],
 ) -> dict[str, Any] | None:
     appendix_no = _appendix_no(
-        str(appendix.get("별표구분") or "별표") + " " + str(appendix.get("별표번호") or "")
+        str(appendix.get("별표구분") or "별표")
+        + " "
+        + str(appendix.get("별표번호") or "")
     )
     branch_no = str(appendix.get("별표가지번호") or "").strip()
     if branch_no and branch_no != "00":
@@ -355,7 +415,9 @@ def _make_admrul_article_record(
     admrul_seq: str,
     basic_info: dict[str, Any],
 ) -> dict[str, Any] | None:
-    match = re.match(r"제(\d+(?:의\d+)?)조\s*\(([^)]+)\)\s*(.*)", raw_article.strip(), re.DOTALL)
+    match = re.match(
+        r"제(\d+(?:의\d+)?)조\s*\(([^)]+)\)\s*(.*)", raw_article.strip(), re.DOTALL
+    )
     if not match:
         return None
     article_no = match.group(1)
@@ -411,7 +473,9 @@ def fetch_law_articles(
     # cold start: 프로세스 시작 직후 소켓 준비 전 실패 방지
     time.sleep(3.0)
 
-    for law_name, article_nos in tqdm(targets.items(), desc="법령 조문 수집", unit="법령"):
+    for law_name, article_nos in tqdm(
+        targets.items(), desc="법령 조문 수집", unit="법령"
+    ):
         log.info("수집 시작: %s (조문 %d개)", law_name, len(article_nos))
 
         mst = _find_mst(law_name)
@@ -420,7 +484,9 @@ def fetch_law_articles(
             continue
 
         time.sleep(_REQUEST_DELAY)
-        fetched_law_name, all_articles, all_appendices, basic_info = _fetch_law_by_mst(mst)
+        fetched_law_name, all_articles, all_appendices, basic_info = _fetch_law_by_mst(
+            mst
+        )
         display_name = fetched_law_name or law_name
 
         target_nos = {_normalize_article_no(no) for no in article_nos}
@@ -465,7 +531,9 @@ def fetch_law_articles(
                 )
             )
 
-        appendix_targets = {_appendix_no(no) for no in TARGET_LAW_APPENDICES.get(law_name, [])}
+        appendix_targets = {
+            _appendix_no(no) for no in TARGET_LAW_APPENDICES.get(law_name, [])
+        }
         if appendix_targets:
             for appendix in all_appendices:
                 if str(appendix.get("별표구분") or "별표").strip() != "별표":
@@ -487,10 +555,16 @@ def fetch_law_articles(
                 if record:
                     result.append(record)
 
-        log.info("  → %s: %d개 조문 수집 완료", display_name, len([r for r in result if r["mst"] == mst]))
+        log.info(
+            "  → %s: %d개 조문 수집 완료",
+            display_name,
+            len([r for r in result if r["mst"] == mst]),
+        )
         time.sleep(_REQUEST_DELAY)
 
-    for query, article_nos in tqdm(TARGET_ADMIN_RULES.items(), desc="행정규칙 수집", unit="규칙"):
+    for query, article_nos in tqdm(
+        TARGET_ADMIN_RULES.items(), desc="행정규칙 수집", unit="규칙"
+    ):
         log.info("행정규칙 수집 시작: %s", query)
         admrul_seq = _find_admrul_seq(query)
         if not admrul_seq:
@@ -498,9 +572,15 @@ def fetch_law_articles(
             continue
 
         time.sleep(_REQUEST_DELAY)
-        fetched_rule_name, raw_articles, all_appendices, basic_info = _fetch_admrul_by_seq(admrul_seq)
+        fetched_rule_name, raw_articles, all_appendices, basic_info = (
+            _fetch_admrul_by_seq(admrul_seq)
+        )
         display_name = fetched_rule_name or query
-        target_nos = None if article_nos is None else {_normalize_article_no(no) for no in article_nos}
+        target_nos = (
+            None
+            if article_nos is None
+            else {_normalize_article_no(no) for no in article_nos}
+        )
 
         added = 0
         for raw_article in raw_articles:
@@ -512,7 +592,10 @@ def fetch_law_articles(
             )
             if not record:
                 continue
-            if target_nos is not None and _normalize_article_no(record["article_no"]) not in target_nos:
+            if (
+                target_nos is not None
+                and _normalize_article_no(record["article_no"]) not in target_nos
+            ):
                 continue
             result.append(record)
             added += 1
@@ -544,7 +627,9 @@ def fetch_law_articles(
 def _law_article_row_id(article: dict[str, Any]) -> str:
     content_type = article.get("content_type") or "article"
     kind = "appendix" if content_type == "guideline" else "article"
-    source_key = article.get("stable_source_key") or _stable_slug(str(article.get("law_name", "")))
+    source_key = article.get("stable_source_key") or _stable_slug(
+        str(article.get("law_name", ""))
+    )
     section_key = re.sub(r"\s+", "", str(article.get("article_no", "")))
     return f"law_api:{source_key}:{kind}:{section_key}"
 
@@ -555,7 +640,9 @@ def _dedupe_law_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]
     for article in articles:
         row_id = _law_article_row_id(article)
         if row_id in seen:
-            log.warning("중복 조문 dedup: id=%s (동일 MST가 여러 법령명으로 수집됨)", row_id)
+            log.warning(
+                "중복 조문 dedup: id=%s (동일 MST가 여러 법령명으로 수집됨)", row_id
+            )
         seen[row_id] = article
     return list(seen.values())
 
@@ -574,6 +661,7 @@ def _legal_basis(article: dict[str, Any]) -> str:
 
 # ── Document 변환 ────────────────────────────────────────────────────────────
 
+
 def articles_to_documents(articles: list[dict[str, Any]]) -> list[Document]:
     """
     수집된 조문 리스트를 LangChain Document로 변환한다.
@@ -588,35 +676,35 @@ def articles_to_documents(articles: list[dict[str, Any]]) -> list[Document]:
         article_no = article["article_no"]
         content = article["content"]
 
-        row_id   = _law_article_row_id(article)
+        row_id = _law_article_row_id(article)
         chunk_id = make_chunk_id(row_id)
 
         # 헤더 구성 (기존 청크와 동일한 메타 키 사용)
-        h2         = _section_heading(article)
+        h2 = _section_heading(article)
         breadcrumb = f"{law_name} > {h2}"
 
         # LEGAL_CITE 태그 삽입 (citation vote에서 활용)
-        cite_tag     = f"[LEGAL_CITE: {_legal_basis(article)}]"
+        cite_tag = f"[LEGAL_CITE: {_legal_basis(article)}]"
         page_content = f"{breadcrumb}\n\n{content}\n\n{cite_tag}"
 
         docs.append(
             Document(
                 page_content=page_content,
                 metadata={
-                    "source":       f"법제처 Open API — {law_name} 제{article_no}조",
-                    "header_1":     law_name,
-                    "header_2":     h2,
-                    "breadcrumb":   breadcrumb,
-                    "source_type":  "law_article",  # classifier 필터 의존 — 변경 금지
-                    "source_kind":  "law_api",      # Stage 2 식별자 (Stage 3: usage_standard)
-                    "record_type":  "corpus",
-                    "law_name":     law_name,
-                    "article_no":   article_no,
-                    "mst":          article.get("mst"),
-                    "admrul_seq":   article.get("admrul_seq"),
+                    "source": f"법제처 Open API — {law_name} 제{article_no}조",
+                    "header_1": law_name,
+                    "header_2": h2,
+                    "breadcrumb": breadcrumb,
+                    "source_type": "law_article",  # classifier 필터 의존 — 변경 금지
+                    "source_kind": "law_api",  # Stage 2 식별자 (Stage 3: usage_standard)
+                    "record_type": "corpus",
+                    "law_name": law_name,
+                    "article_no": article_no,
+                    "mst": article.get("mst"),
+                    "admrul_seq": article.get("admrul_seq"),
                     "content_type": article.get("content_type", "article"),
-                    "master_id":    row_id,
-                    "chunk_id":     chunk_id,   # ← Qdrant point ID와 동일
+                    "master_id": row_id,
+                    "chunk_id": chunk_id,  # ← Qdrant point ID와 동일
                 },
             )
         )
@@ -626,12 +714,14 @@ def articles_to_documents(articles: list[dict[str, Any]]) -> list[Document]:
 
 # ── 전체 파이프라인 ──────────────────────────────────────────────────────────
 
+
 def _delete_law_articles(collection_name: str) -> None:
     """기존 law_article 포인트를 모두 삭제 (중복 방지)."""
+    import os
+
     from qdrant_client import QdrantClient
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    import os
     url = os.environ.get("QDRANT_URL", "http://localhost:6333")
     client = QdrantClient(url=url)
     try:
@@ -712,32 +802,38 @@ def _upsert_articles_to_rdb(articles: list[dict[str, Any]], database_url: str) -
         if not row["body"]:
             continue
 
-        records.append((
-            row["id"],
-            row["source_name"],
-            row["source_type"],
-            row["source_path"],
-            row["article_no"],
-            row["paragraph_no"],
-            row["item_no"],
-            row["section_path"],
-            row["chunk_id"],
-            row["body"],
-            row["record_type"],
-            row["content_type"],
-            row["rule_type"],
-            row["category_code"],
-            row["category_name"],
-            row["allowed"],
-            row["limit_pct"],
-            row["keyword"],
-            row["item_pattern"],
-            row["legal_basis"],
-            row["cited_laws"],
-            row["keywords"],
-            row["hash"],
-            Jsonb(json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"]),
-        ))
+        records.append(
+            (
+                row["id"],
+                row["source_name"],
+                row["source_type"],
+                row["source_path"],
+                row["article_no"],
+                row["paragraph_no"],
+                row["item_no"],
+                row["section_path"],
+                row["chunk_id"],
+                row["body"],
+                row["record_type"],
+                row["content_type"],
+                row["rule_type"],
+                row["category_code"],
+                row["category_name"],
+                row["allowed"],
+                row["limit_pct"],
+                row["keyword"],
+                row["item_pattern"],
+                row["legal_basis"],
+                row["cited_laws"],
+                row["keywords"],
+                row["hash"],
+                Jsonb(
+                    json.loads(row["metadata"])
+                    if isinstance(row["metadata"], str)
+                    else row["metadata"]
+                ),
+            )
+        )
 
     if not records:
         return 0
@@ -805,7 +901,11 @@ def run_law_api_pipeline(
     _delete_law_articles(collection_name)
 
     upsert_with_ids(collection_name=collection_name, documents=docs, ids=chunk_ids)
-    log.info("Qdrant upsert 완료: collection=%s, docs=%d (chunk_id 연결)", collection_name, len(docs))
+    log.info(
+        "Qdrant upsert 완료: collection=%s, docs=%d (chunk_id 연결)",
+        collection_name,
+        len(docs),
+    )
 
     # RDB 적재 (database_url 이 지정된 경우)
     rdb_count = 0
