@@ -118,13 +118,13 @@ TARGET_ADMIN_RULES: dict[str, list[str] | None] = {
 
 # ── API 호출 헬퍼 ────────────────────────────────────────────────────────────
 
-def _get(endpoint: str, params: dict, *, retries: int = 3, retry_delay: float = 2.0) -> dict:
+def _get(endpoint: str, params: dict, *, retries: int = 3, retry_delay: float = 3.0) -> dict:
     """법제처 API GET 요청. 실패 시 최대 retries회 재시도 후 빈 딕셔너리 반환."""
     params.update({"OC": _api_key(), "type": "JSON"})
     last_err: Exception | None = None
     for attempt in range(retries):
         try:
-            resp = requests.get(f"{_BASE_URL}/{endpoint}", params=params, timeout=15)
+            resp = requests.get(f"{_BASE_URL}/{endpoint}", params=params, timeout=20)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
@@ -408,7 +408,7 @@ def fetch_law_articles(
     result: list[dict[str, Any]] = []
 
     # cold start: 프로세스 시작 직후 소켓 준비 전 실패 방지
-    time.sleep(2.0)
+    time.sleep(3.0)
 
     for law_name, article_nos in tqdm(targets.items(), desc="법령 조문 수집", unit="법령"):
         log.info("수집 시작: %s (조문 %d개)", law_name, len(article_nos))
