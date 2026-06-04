@@ -1,70 +1,102 @@
-# batch
+# Batch
 
-법령 데이터 초기 적재 및 주기 갱신 파이프라인
+법령/RAG 데이터를 PostgreSQL과 Qdrant에 적재하거나 갱신하는 배치 프로젝트입니다.
 
-## 개요
+## 역할
 
-SKALA 프로젝트의 법령 데이터를 Qdrant(벡터 DB)와 PostgreSQL(RDB)에 적재하고 최신 상태로 유지합니다.
+- `ingest`: MinIO PDF, 법제처 Open API, 산안비 사용기준을 Qdrant/RDB에 초기 적재
+- `refresh`: 변경분을 감지해 Qdrant/RDB를 갱신
+- `safety-doc-reference`: MinIO의 safety-doc-agent 마크다운을 `safety-guide` Qdrant collection으로 적재
 
-- **ingestion** : 최초 1회 실행. PDF 변환 + 법제처 API 수집 + 산안비 고시 파싱 후 전체 적재
-- **refresh** : 주기적으로 실행(cronjob 등). 변경분만 감지하여 Qdrant + RDB 갱신
+## Kubernetes 연결
 
-## 요구사항
+배치 Pod는 같은 namespace 안의 내부 Service로 접속합니다.
 
-- Python 3.11.9
-- [uv](https://github.com/astral-sh/uv)
-- Qdrant 서버 (`http://localhost:6333`)
-- PostgreSQL (`legal_rag` 스키마)
+```env
+QDRANT_URL=http://team5-qdrant:6333
+POSTGRES_HOST=team5-postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=safety
+APP_MINIO_ENDPOINT=http://team5-minio:9000
+APP_MINIO_BUCKET=safety-files
+```
 
-## 설치
+`DATABASE_URL`은 Kubernetes Job 시작 시 `team5-postgres-secret`의 `LAW_APP_USER`와 `LAW_APP_PASSWORD`로 조립합니다.
+
+## 주요 명령
+
+초기 적재:
 
 ```bash
-uv sync
+python -m src.ingestion_service --collection legal_documents --force
 ```
 
-## 환경변수
+증분 갱신:
 
-프로젝트 루트(skala/)의 `.env` 파일에 아래 항목이 있어야 합니다.
-
+```bash
+python -m src.refresh_service --collection legal_documents
 ```
+
+Safety Doc Agent 참고자료 적재:
+
+```bash
+python -m src.safety_doc_reference_ingest \
+  --collection safety-guide \
+  --prefix safety-doc-agent/ \
+  --force
+```
+
+## 로컬 확인
+
+Kubernetes의 공유 리소스를 port-forward로 연결합니다.
+
+```bash
+kubectl port-forward svc/team5-postgres 5433:5432 -n skala3-finalproj-class2-team5
+kubectl port-forward svc/team5-qdrant 6333:6333 -n skala3-finalproj-class2-team5
+kubectl port-forward svc/team5-minio 9000:9000 -n skala3-finalproj-class2-team5
+```
+
+`.env` 예시:
+
+```env
 QDRANT_URL=http://localhost:6333
-DATABASE_URL=postgresql://...
-LAW_API_KEY=<법제처 Open API 키>
+DATABASE_URL=postgresql://safety_law_app:<password>@localhost:5433/safety
+APP_MINIO_ENDPOINT=http://localhost:9000
+APP_MINIO_BUCKET=safety-files
+APP_MINIO_ACCESS_KEY=minioadmin
+APP_MINIO_SECRET_KEY=minioadmin
+BATCH_MINIO_DATA_PREFIX=data/
 ```
 
-## 실행
+## 배포/실행
 
-### 초기 적재 (ingestion)
+GitHub Actions에서 이미지를 빌드한 뒤, 선택한 Kubernetes Job을 생성합니다.
+
+- `ingest`: 전체 초기 적재
+- `refresh`: 변경분 갱신
+- `safety-doc-reference`: MinIO `safety-files/safety-doc-agent/` 마크다운을 `safety-guide` collection으로 적재
+
+Kubernetes Job manifest는 이 레포가 아니라 `SKALA-TEAM5/deploy` 레포의 `k8s/batch`에서 관리합니다.
+batch workflow는 deploy 레포를 checkout한 뒤 해당 Job manifest를 적용합니다.
 
 ```bash
-# 최초 실행
-uv run python src/ingestion_service.py
-
-# 강제 재적재 (Qdrant 컬렉션 초기화 후 재실행)
-uv run python src/ingestion_service.py --force
-
-# PDF 재변환까지 포함
-uv run python src/ingestion_service.py --force --reconvert
+kubectl get jobs,pods -n skala3-finalproj-class2-team5 -l app=team5-batch
+kubectl logs -f job/team5-qdrant-ingest -n skala3-finalproj-class2-team5
+kubectl logs -f job/team5-qdrant-refresh -n skala3-finalproj-class2-team5
+kubectl logs -f job/team5-safety-doc-reference-ingest -n skala3-finalproj-class2-team5
 ```
 
-### 주기 갱신 (refresh)
+Actions Secret에 아래 값을 등록해야 합니다.
 
-```bash
-uv run python src/refresh_service.py
+```text
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+HARBOR_REGISTRY
+HARBOR_PROJECT
+HARBOR_USERNAME
+HARBOR_PASSWORD
+LAW_API_KEY
 ```
 
-## 디렉토리 구조
-
-```
-batch/
-├── src/
-│   ├── ingestion/          # PDF 변환, 법제처 API, 산안비 고시 수집
-│   ├── refresh/            # 변경 감지(diff) 및 갱신
-│   ├── repositories/       # RDB 적재 로직
-│   ├── core/               # Qdrant 연결, 임베딩
-│   ├── ingestion_service.py
-│   └── refresh_service.py
-├── data/                   # PDF 원본 파일
-├── outputs/                # Docling 변환 결과 (마크다운)
-└── artifacts/              # 파이프라인 산출물
-```
+`LAW_API_KEY`는 workflow 실행 시 `team5-batch-secret` Kubernetes Secret으로 반영되고,
+배치 Job은 이 Secret을 환경변수로 읽습니다.

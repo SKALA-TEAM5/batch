@@ -27,8 +27,12 @@ Public API:
 import json
 import logging
 import os
+import hashlib
+import shutil
+import unicodedata
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -80,6 +84,80 @@ def _save_state(collection: str, result: dict) -> None:
     )
 
 
+def _sync_pdf_files_from_minio(data_dir: str, object_name: str | None = None) -> int:
+    endpoint = os.environ.get("BATCH_MINIO_ENDPOINT") or os.environ.get("APP_MINIO_ENDPOINT", "")
+    bucket = os.environ.get("BATCH_MINIO_BUCKET") or os.environ.get("APP_MINIO_BUCKET", "")
+    access_key = os.environ.get("BATCH_MINIO_ACCESS_KEY") or os.environ.get("APP_MINIO_ACCESS_KEY", "")
+    secret_key = os.environ.get("BATCH_MINIO_SECRET_KEY") or os.environ.get("APP_MINIO_SECRET_KEY", "")
+    prefix = os.environ.get("BATCH_MINIO_DATA_PREFIX", "data/").lstrip("/")
+
+    if not all([endpoint, bucket, access_key, secret_key]):
+        log.info("MinIO PDF 동기화 건너뜀 — endpoint/bucket/key 설정이 없습니다.")
+        return 0
+
+    from minio import Minio
+
+    parsed = urlparse(endpoint)
+    secure = parsed.scheme == "https"
+    netloc = parsed.netloc if parsed.netloc else parsed.path
+    if not netloc:
+        raise ValueError("MinIO endpoint is invalid.")
+
+    target_dir = Path(data_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    client = Minio(
+        netloc,
+        access_key=access_key,
+        secret_key=secret_key,
+        secure=secure,
+    )
+    count = 0
+    objects = (
+        [client.stat_object(bucket, object_name)]
+        if object_name
+        else client.list_objects(bucket, prefix=prefix, recursive=True)
+    )
+    for obj in objects:
+        if getattr(obj, "is_dir", False) or not obj.object_name.lower().endswith(".pdf"):
+            continue
+        target_path = _safe_pdf_download_path(target_dir, obj.object_name)
+        response = client.get_object(bucket, obj.object_name)
+        try:
+            with target_path.open("wb") as file:
+                shutil.copyfileobj(response, file)
+        finally:
+            response.close()
+            response.release_conn()
+        count += 1
+        print(f"  [MinIO → data] {obj.object_name} -> {target_path}")
+
+    print(f"  [MinIO → data] PDF {count}개 동기화 완료 (bucket={bucket}, prefix={prefix})")
+    return count
+
+
+def _safe_pdf_download_path(target_dir: Path, object_name: str) -> Path:
+    original_name = unicodedata.normalize("NFC", Path(object_name).name)
+    stem = Path(original_name).stem or "document"
+    digest = hashlib.sha1(object_name.encode("utf-8")).hexdigest()[:10]
+    suffix = f"-{digest}.pdf"
+    max_stem_bytes = 120 - len(suffix.encode("utf-8"))
+    safe_stem = _truncate_utf8(stem, max_stem_bytes).strip(" ._-") or "document"
+    return target_dir / f"{safe_stem}{suffix}"
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    result: list[str] = []
+    used = 0
+    for char in text:
+        char_len = len(char.encode("utf-8"))
+        if used + char_len > max_bytes:
+            break
+        result.append(char)
+        used += char_len
+    return "".join(result)
+
+
 # ── 단일 PDF 파이프라인 ───────────────────────────────────────────
 
 
@@ -128,6 +206,8 @@ def run_pipeline(
     skip_law_api: bool = False,
     skip_usage_standard: bool = False,
     database_url: str | None = None,
+    minio_object: str | None = None,
+    ignore_state: bool = False,
 ) -> dict:
     """
     완전한 인덱싱 파이프라인.
@@ -154,11 +234,13 @@ def run_pipeline(
         reset_collection(collection)
 
     # 중복 실행 방지 (force=False 일 때)
-    if not force:
+    if not force and not ignore_state:
         state = _load_state(collection)
         if state:
             log.info("이미 인덱싱됨 — 스킵 (force=True 로 재실행 가능)")
             return {**state, "skipped": True}
+
+    _sync_pdf_files_from_minio(data_dir, minio_object)
 
     # ── PDF 적재 ─────────────────────────────────────────────────
     pdf_chunks: list = []
@@ -321,6 +403,8 @@ if __name__ == "__main__":
     parser.add_argument("--reconvert", action="store_true")
     parser.add_argument("--skip-law-api", action="store_true")
     parser.add_argument("--skip-usage-standard", action="store_true")
+    parser.add_argument("--minio-object", help="MinIO object name for a single PDF ingest")
+    parser.add_argument("--ignore-state", action="store_true", help="Ignore local indexing state cache")
     args = parser.parse_args()
 
     result = run_pipeline(
@@ -332,5 +416,7 @@ if __name__ == "__main__":
         reconvert=args.reconvert,
         skip_law_api=args.skip_law_api,
         skip_usage_standard=args.skip_usage_standard,
+        minio_object=args.minio_object,
+        ignore_state=args.ignore_state,
     )
     print(result)
