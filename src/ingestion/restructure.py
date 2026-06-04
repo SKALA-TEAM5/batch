@@ -44,7 +44,7 @@ def _classify_heading(text: str) -> int:
     return 3
 
 
-# 🔥 핵심: 다중 법령 추출
+# 핵심: 다중 법령 추출
 def _extract_all_legal_cites(text: str):
     """
     한 문장에서 모든 법령 조합 추출 (법령명 포함)
@@ -103,7 +103,7 @@ def _extract_all_legal_cites(text: str):
     return result
 
 
-# 🔥 리스트 구조 판단
+# 리스트 구조 판단
 def _is_list_line(text: str) -> bool:
     return bool(
         re.match(r"^\s*[-•▪]", text)
@@ -120,7 +120,7 @@ def restructure_markdown(markdown_text: str) -> str:
 
     output_lines = []
 
-    # 🔥 carry 상태
+    # carry 상태
     current_article = None
     current_paragraph = None
     carry_depth = 0
@@ -153,7 +153,7 @@ def restructure_markdown(markdown_text: str) -> str:
             carry_depth += 1
             continue
 
-        # 🔥 1순위: 문장 내 다중 법령 추출
+        # 1순위: 문장 내 다중 법령 추출
         cites = _extract_all_legal_cites(line)
 
         if cites:
@@ -173,7 +173,7 @@ def restructure_markdown(markdown_text: str) -> str:
             carry_depth = 0
             continue
 
-        # 🔥 2순위: 리스트 기반 carry
+        # 2순위: 리스트 기반 carry
         if _is_list_line(line) and carry_depth < MAX_CARRY:
             parts = []
             if current_article:
@@ -186,7 +186,7 @@ def restructure_markdown(markdown_text: str) -> str:
                 carry_depth += 1
                 continue
 
-        # 🔥 3순위: 일반 문장
+        # 3순위: 일반 문장
         carry_depth += 1
         if carry_depth > MAX_CARRY:
             current_article = None
