@@ -44,10 +44,8 @@ from src.core.storage import (
     DEFAULT_COLLECTION,
     reset_collection,
 )
-from src.ingestion.breadcrumb import inject_breadcrumbs
 from src.ingestion.converter import convert_pdf_to_markdown
 from src.ingestion.law_api_scraper import run_law_api_pipeline
-from src.ingestion.restructure import restructure_markdown
 from src.ingestion.usage_standard_scraper import run_usage_standard_pipeline
 
 log = logging.getLogger(__name__)
@@ -180,14 +178,8 @@ def process_pdf(
         print(f"  → 기존 마크다운 재사용: {final_path}")
         return final_path
 
-    raw_md = convert_pdf_to_markdown(str(pdf))
-
-    print("  계층 구조 재구성 중...")
-    restructured_md = restructure_markdown(raw_md)
-
-    print("  Breadcrumb 주입 중...")
-    final_md = inject_breadcrumbs(restructured_md)
-
+    # pdfplumber_converter는 restructure + breadcrumb까지 포함한 final md를 반환한다.
+    final_md = convert_pdf_to_markdown(str(pdf))
     final_path.write_text(final_md, encoding="utf-8")
     print(f"  → 마크다운 저장: {final_path}")
     return final_path
@@ -229,9 +221,17 @@ def run_pipeline(
         "DATABASE_URL",
         "postgresql://safety_user:safety_password@localhost:5432/safety",
     )
-    if force and not skip_vector_db:
-        log.info("force=True — Vector DB 컬렉션 초기화")
-        reset_collection(collection)
+    if force:
+        reconvert = True  # force=True 면 PDF 변환도 강제 재실행
+        # outputs/ 초기화 — 이전 변환 결과 제거 (old/new 버전 혼재 방지)
+        out_path = Path(output_dir)
+        if out_path.exists():
+            import shutil
+            shutil.rmtree(out_path)
+            log.info("force=True — outputs/ 초기화 완료")
+        if not skip_vector_db:
+            log.info("force=True — Vector DB 컬렉션 초기화")
+            reset_collection(collection)
 
     # 중복 실행 방지 (force=False 일 때)
     if not force and not ignore_state:

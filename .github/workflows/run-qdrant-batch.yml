@@ -29,6 +29,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout deploy manifests
+        uses: actions/checkout@v4
+        with:
+          repository: SKALA-TEAM5/deploy
+          ref: main
+          path: deploy
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -79,7 +86,7 @@ jobs:
         run: |
           if [ "${{ inputs.mode }}" = "refresh" ]; then
             JOB_NAME=team5-qdrant-refresh
-            JOB_FILE=k8s/qdrant-refresh-job.yaml
+            JOB_FILE=deploy/k8s/batch/qdrant-refresh-job.yaml
             kubectl delete job "${JOB_NAME}" --ignore-not-found=true
             kubectl apply -f "${JOB_FILE}"
             kubectl get job "${JOB_NAME}" -o wide
@@ -88,7 +95,7 @@ jobs:
             echo "kubectl logs -f job/${JOB_NAME} -n ${K8S_NAMESPACE}"
           elif [ "${{ inputs.mode }}" = "safety-doc-reference" ]; then
             JOB_NAME=team5-safety-doc-reference-ingest
-            JOB_FILE=k8s/safety-doc-reference-ingest-job.yaml
+            JOB_FILE=deploy/k8s/batch/safety-doc-reference-ingest-job.yaml
             kubectl delete job "${JOB_NAME}" --ignore-not-found=true
             kubectl apply -f "${JOB_FILE}"
             kubectl get job "${JOB_NAME}" -o wide
@@ -97,7 +104,7 @@ jobs:
             echo "kubectl logs -f job/${JOB_NAME} -n ${K8S_NAMESPACE}"
           else
             JOB_NAME=team5-qdrant-ingest
-            JOB_FILE=k8s/qdrant-ingest-job.yaml
+            JOB_FILE=deploy/k8s/batch/qdrant-ingest-job.yaml
             kubectl delete job "${JOB_NAME}" --ignore-not-found=true
             kubectl apply -f "${JOB_FILE}"
             kubectl get job "${JOB_NAME}" -o wide

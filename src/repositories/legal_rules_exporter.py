@@ -18,9 +18,6 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 
-# TODO(refresh/postgres): PostgreSQL이 주 저장소가 되면 이 모듈은
-# 초기 적재/백필 스크립트로 축소하거나, refresh 파이프라인의 정규화 단계로 재사용한다.
-
 _CITE_PATTERN = re.compile(r"\[LEGAL_CITE:\s*([^\]]+)\]")
 _INLINE_CITATION_RE = re.compile(
     r"(제\s*\d+\s*조(?:의\s*\d+)?(?:\s*제\s*\d+\s*항)?(?:\s*제\s*\d+\s*호)?(?:\s*[가-하]\s*목)?|별표\s*\d+(?:의\s*\d+)?|별지\s*제?\s*\d+\s*호\s*서식)"
@@ -48,19 +45,30 @@ _LIMIT_KEYWORDS = [
     "초과금지",
 ]
 _TOTAL_KEYWORDS = ["총액", "계상액"]
-_NOISE_PREFIXES = ("법제처", "국가법령정보센터", "Ministry of", "Ministry of Employment")
+_NOISE_PREFIXES = (
+    "법제처",
+    "국가법령정보센터",
+    "Ministry of",
+    "Ministry of Employment",
+)
 _NOISE_LINES = {"③ <삭 제>", "③ &lt;삭 제&gt;"}
 _NOISE_RE = re.compile(
-    r"^\d+$"                                      # 페이지 번호
-    r"|^\d{4}\.\s*\d{1,2}$"                       # 연도.월 (예: 2025. 6)
-    r"|^\d{3}-\d{3,4}-\d{4}$"                     # 전화번호
-    r"|^\[시행\s+\d{4}.*?\].*$"                    # [시행 날짜] 단독 줄
-    r"|^\[고용노동부고시\s+제.*?\].*$"              # [고용노동부고시...] 단독 줄
+    r"^\d+$"  # 페이지 번호
+    r"|^\d{4}\.\s*\d{1,2}$"  # 연도.월 (예: 2025. 6)
+    r"|^\d{3}-\d{3,4}-\d{4}$"  # 전화번호
+    r"|^\[시행\s+\d{4}.*?\].*$"  # [시행 날짜] 단독 줄
+    r"|^\[고용노동부고시\s+제.*?\].*$"  # [고용노동부고시...] 단독 줄
 )
+# body에서 제거할 마크다운 마커 패턴
+_MD_MARKER_RE = re.compile(
+    r"<!--\s*page:\d+\s*-->"       # <!-- page:N -->
+    r"|<!--\s*context:.*?-->"      # <!-- context: ... -->
+    r"|^#{1,6}\s+"                 # ### 헤딩 마커
+, re.MULTILINE)
 # TOC(목차)형 행: 점선으로 이어진 목차 패턴 (예: "| 01 해설집···· · · · ·")
 _TOC_LINE_RE = re.compile(
-    r"[·\.·]{5,}"                            # 연속 점 5개 이상 (·, ., ·)
-    r"|\|\s*\d{1,3}\s*\|?\s*$"                    # | 숫자 | 로 끝나는 페이지 참조
+    r"[·\.·]{5,}"  # 연속 점 5개 이상 (·, ., ·)
+    r"|\|\s*\d{1,3}\s*\|?\s*$"  # | 숫자 | 로 끝나는 페이지 참조
 )
 # OCR 띄어짐 보정 대상: 한글 한 글자 + 공백 + 한글 한 글자 패턴이 3회 이상
 _OCR_SPLIT_RE = re.compile(r"([가-힣])\s([가-힣])\s([가-힣])")
@@ -171,7 +179,19 @@ _REGULATORY_TOKENS = [
     "사용기준",
 ]
 
-_RULE_TEXT_KEYWORDS = ("해당", "사용", "불가", "가능", "초과", "이내", "지급", "구입", "임대", "설치", "비용")
+_RULE_TEXT_KEYWORDS = (
+    "해당",
+    "사용",
+    "불가",
+    "가능",
+    "초과",
+    "이내",
+    "지급",
+    "구입",
+    "임대",
+    "설치",
+    "비용",
+)
 _QUESTIONISH_SUFFIXES = (
     "사용 가능한지",
     "사용이 가능한지",
@@ -181,7 +201,9 @@ _QUESTIONISH_SUFFIXES = (
     "되는지",
     "있는지",
 )
-_PROGRESS_RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)퍼센트\s*이상(?:\s*(\d+(?:\.\d+)?)퍼센트\s*미만)?")
+_PROGRESS_RANGE_RE = re.compile(
+    r"(\d+(?:\.\d+)?)퍼센트\s*이상(?:\s*(\d+(?:\.\d+)?)퍼센트\s*미만)?"
+)
 _PROGRESS_USAGE_RE = re.compile(r"(\d+(?:\.\d+)?)퍼센트\s*이상")
 _APPENDIX_1_VALUE_RE = re.compile(r"(\d+(?:\.\d+)?)%|(\d{1,3}(?:,\d{3})+)원")
 _APPENDIX_LIST_ITEM_RE = re.compile(r"^(\d+)\.\s*(.+)$")
@@ -273,9 +295,11 @@ def _fix_ocr_split(text: str) -> str:
         text = re.sub(r"(?<=[가-힣]) (?=[가-힣])(?=.{0,60}(?:\s|$))", "", text, count=1)
         # 과도한 제거 방지: 일반 단어 사이 공백은 유지하므로 패턴 재확인
         break
+
     # 안전한 방식: 연속 3글자 이상 한 글자씩 띄어진 패턴만 붙이기
     def _join_split(m: re.Match) -> str:
         return m.group(1) + m.group(2) + m.group(3)
+
     return _OCR_SPLIT_RE.sub(_join_split, text)
 
 
@@ -303,7 +327,9 @@ def _clean_rule_text_for_storage(text: str, *, rule_type: str | None = None) -> 
     if not cleaned:
         return ""
 
-    cleaned = cleaned.replace("으로 사용 가능한지 으로 사용 가능한지", "으로 사용 가능한지")
+    cleaned = cleaned.replace(
+        "으로 사용 가능한지 으로 사용 가능한지", "으로 사용 가능한지"
+    )
     cleaned = cleaned.replace("비 용", "비용")
     cleaned = re.sub(r"^귀\s+질의의\s*", "", cleaned)
     cleaned = re.sub(
@@ -329,7 +355,7 @@ def _clean_rule_text_for_storage(text: str, *, rule_type: str | None = None) -> 
         if tail:
             preferred = tail
     if preferred.startswith("가능한지"):
-        preferred = preferred[len("가능한지"):].strip(" :-")
+        preferred = preferred[len("가능한지") :].strip(" :-")
 
     preferred = _normalize_whitespace(preferred)
     if preferred and not preferred.endswith((".", "다", "함")) and len(preferred) < 160:
@@ -438,7 +464,9 @@ def _extract_cites(text: str) -> list[str]:
     return cites
 
 
-def _parse_citation_parts(citation: str) -> tuple[str | None, str | None, str | None, str | None]:
+def _parse_citation_parts(
+    citation: str,
+) -> tuple[str | None, str | None, str | None, str | None]:
     normalized = _normalize_whitespace(citation)
 
     article_match = re.search(r"제\s*(\d+)\s*조(?:의\s*(\d+))?", normalized)
@@ -474,7 +502,9 @@ def build_citations(
             if key in seen:
                 continue
             seen.add(key)
-            article_no, paragraph_no, item_no, subitem_no = _parse_citation_parts(citation_text)
+            article_no, paragraph_no, item_no, subitem_no = _parse_citation_parts(
+                citation_text
+            )
             citations.append(
                 LegalCitation(
                     citation_id=f"{parent_id}:cite:{sequence_no}",
@@ -528,10 +558,13 @@ def _extract_limit(text: str) -> tuple[float | None, str | None]:
 
 
 def _source_type_from_content(name: str, text: str) -> str:
-    normalized = _normalize_whitespace(text)
-    if "항목별 사용 불가내역" in normalized:
+    # 파일명 기준으로 분류 (본문 스캔 시 변환기 주석에 의한 오분류 방지)
+    # macOS 파일시스템은 NFD 유니코드를 사용하므로 NFC로 정규화 후 비교
+    import unicodedata
+    name = unicodedata.normalize("NFC", name)
+    if "불가내역" in name or "부록" in name:
         return "appendix_disallowed"
-    if "질의회시집" in normalized or "해설집" in normalized or "해설" in name:
+    if "해설" in name or "질의회시" in name:
         return "commentary"
     return "law_notice"
 
@@ -561,6 +594,11 @@ def _is_noise_line(line: str) -> bool:
     return False
 
 
+_REVISION_HISTORY_RE = re.compile(
+    r"^(?:제정|개정|폐지)\s+\d{4}\.\s*\d{1,2}[\.\s]\s*\d{1,2}\s+고시제\d{2,4}\s*[-–]\s*\d+호"
+)
+
+
 def _is_toc_block(body: str) -> bool:
     """본문 전체가 목차/TOC 블록인지 판단."""
     lines = [l.strip() for l in body.splitlines() if l.strip()]
@@ -568,6 +606,22 @@ def _is_toc_block(body: str) -> bool:
         return False
     toc_count = sum(1 for l in lines if _TOC_LINE_RE.search(l))
     return toc_count >= max(2, len(lines) * 0.5)
+
+
+def _is_revision_history_block(body: str) -> bool:
+    """개정이력 블록 판단 (제정/개정 YYYY.MM.DD 고시제XX-XX호 패턴 3줄 이상)."""
+    lines = [l.strip() for l in body.splitlines() if l.strip()]
+    if len(lines) < 3:
+        return False
+    rev_count = sum(1 for l in lines if _REVISION_HISTORY_RE.match(l))
+    return rev_count >= min(3, len(lines) * 0.5)
+
+
+def _is_form_template_block(body: str) -> bool:
+    """항목별 사용내역 빈 서식표 판단 — 실제 내용 없는 빈 양식."""
+    markers = ("소요 경비", "소요경비", "(계획)", "(A+B)", "누계(A)", "사용일자가 빠른")
+    hit = sum(1 for m in markers if m in body)
+    return hit >= 3
 
 
 def parse_source_documents(outputs_dir: Path) -> list[SourceDocument]:
@@ -590,7 +644,70 @@ def parse_source_documents(outputs_dir: Path) -> list[SourceDocument]:
     return docs
 
 
+def _parse_appendix_disallowed_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEntry]:
+    """appendix_disallowed 전용 파서 — 표 행(항목) 단위로 청크 분리."""
+    _cite_strip = re.compile(r"^\[LEGAL_CITE:[^\]]*\]\s*")
+    _item_no_re = re.compile(r"^(\d+)\s*[.]\s*(.+)")
+    entries: list[CorpusEntry] = []
+    counter = 1
+    for line in final_md.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        # 헤더행·빈행·page 마커·제목행 스킵
+        if not stripped or stripped.startswith("#") or stripped.startswith("<!--"):
+            continue
+        if stripped in ("|", "| 항 목 | 사용불가내역 |", "| 항목 | 사용불가내역 |"):
+            continue
+        if not ("|" in stripped):
+            continue
+        cites = _extract_cites(stripped)
+        row = _cite_strip.sub("", stripped)
+        cols = [c.strip() for c in row.split("|")]
+        cols = [c for c in cols if c]
+        if len(cols) < 2:
+            continue
+        item_col = cols[0]
+        body_col = cols[1] if len(cols) > 1 else ""
+        if not body_col:
+            continue
+        m = _item_no_re.match(item_col)
+        if m:
+            cat_code = m.group(1)
+            cat_name = m.group(2).strip()
+        else:
+            cat_code = None
+            cat_name = item_col
+        section_path = f"{source.source_name} > {cat_code}. {cat_name}" if cat_code else source.source_name
+        legal_basis = cites[0] if cites else None
+        body = f"{cat_name}\n\n{body_col}".strip()
+        if len(body) < 30:
+            continue
+        entries.append(
+            CorpusEntry(
+                corpus_id=f"{source.source_id}:{counter:04d}",
+                source_id=source.source_id,
+                content_type="appendix",
+                title=cat_name,
+                article_no=cat_code,
+                section_path=section_path,
+                body=body,
+                cited_laws=cites,
+                metadata={
+                    "source_type": source.source_type,
+                    "category_code": cat_code,
+                    "category_name": cat_name,
+                    "allowed": False,
+                    "legal_basis": legal_basis,
+                },
+            )
+        )
+        counter += 1
+    return entries
+
+
 def parse_legal_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEntry]:
+    if source.source_type == "appendix_disallowed":
+        return _parse_appendix_disallowed_corpus(final_md, source)
+
     lines = final_md.read_text(encoding="utf-8").splitlines()
     entries: list[CorpusEntry] = []
     heading_stack: dict[int, str] = {}
@@ -598,10 +715,13 @@ def parse_legal_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEnt
     buffer_lines: list[str] = []
     buffer_cites: list[str] = []
     counter = 1
+    last_article_key: str | None = None  # law_notice: orphan 내용 병합용
 
     def flush() -> None:
-        nonlocal buffer_lines, buffer_cites, counter
-        cleaned_lines = [_clean_line(line) for line in buffer_lines if not _is_noise_line(line)]
+        nonlocal buffer_lines, buffer_cites, counter, last_article_key
+        cleaned_lines = [
+            _clean_line(line) for line in buffer_lines if not _is_noise_line(line)
+        ]
         cleaned_lines = [line for line in cleaned_lines if line]
         if not cleaned_lines:
             buffer_lines = []
@@ -612,24 +732,35 @@ def parse_legal_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEnt
         cleaned_lines = [_fix_ocr_split(line) for line in cleaned_lines]
 
         body = "\n".join(cleaned_lines).strip()
-        article_match = _ARTICLE_HEADER_RE.match(cleaned_lines[0].lstrip("- ").strip())
-        article_no = f"제{article_match.group(1)}조" if article_match else None
 
-        # 30자 미만 짧은 청크는 의미없는 노이즈로 제거 (실제 조문 제외)
-        if len(body) < 30 and not article_no:
+        # ── 마크다운 마커 제거 (page, context, 헤딩 prefix) ──────────
+        body = _MD_MARKER_RE.sub("", body).strip()
+        # 마커 제거 후 남은 빈 줄 정리
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+
+        if not body:
             buffer_lines = []
             buffer_cites = []
             return
 
-        # TOC 블록 전체 제거 (목차 페이지는 규칙 검색에 도움이 안 됨)
-        if _is_toc_block(body):
+        article_match = _ARTICLE_HEADER_RE.match(body.splitlines()[0].lstrip("- ").strip())
+        article_no = f"제{article_match.group(1)}조" if article_match else None
+
+        # 50자 미만 짧은 청크 제거
+        # commentary에서 article_no 있어도 해설집 내 삽입 고시문 짧은 버전은 제거
+        if len(body) < 50:
+            buffer_lines = []
+            buffer_cites = []
+            return
+
+        # TOC 블록 / 개정이력 블록 / 빈 서식표 제거
+        if _is_toc_block(body) or _is_revision_history_block(body) or _is_form_template_block(body):
             buffer_lines = []
             buffer_cites = []
             return
 
         if source.source_type == "commentary":
             content_type = "commentary"
-            # 해설서에서 【고시 제N조】 패턴으로 article_no 추출
             if not article_no:
                 commentary_match = _COMMENTARY_ARTICLE_RE.search(body)
                 if commentary_match:
@@ -644,7 +775,41 @@ def parse_legal_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEnt
         elif article_no:
             content_type = "article"
         else:
-            content_type = "section"
+            # law_notice: orphan 내용(각 호 등)을 직전 article 청크에 병합
+            # 단, 직전 청크가 이미 500자 초과면 별도 청크로 분리 (임베딩 모델 128토큰 제한 고려)
+            if source.source_type == "law_notice" and last_article_key and entries:
+                last = entries[-1]
+                if last.article_no == last_article_key and body not in last.body:
+                    if len(last.body) + len(body) <= 500:
+                        new_cites = list(dict.fromkeys(last.cited_laws + buffer_cites))
+                        entries[-1] = CorpusEntry(
+                            corpus_id=last.corpus_id,
+                            source_id=last.source_id,
+                            content_type=last.content_type,
+                            title=last.title,
+                            article_no=last.article_no,
+                            section_path=last.section_path,
+                            body=last.body + "\n" + body,
+                            cited_laws=new_cites,
+                            metadata=last.metadata,
+                        )
+                    else:
+                        # 500자 초과 → 별도 article 청크로 저장
+                        entries.append(CorpusEntry(
+                            corpus_id=f"{source.source_id}:{counter:04d}",
+                            source_id=source.source_id,
+                            content_type="article",
+                            title=last.title,
+                            article_no=last_article_key,
+                            section_path=last.section_path,
+                            body=body,
+                            cited_laws=buffer_cites[:],
+                            metadata={"source_type": source.source_type},
+                        ))
+                        counter += 1
+            buffer_lines = []
+            buffer_cites = []
+            return
 
         title = None
         if article_match and article_match.group(2):
@@ -661,12 +826,15 @@ def parse_legal_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEnt
                 content_type=content_type,
                 title=title,
                 article_no=article_no,
-                section_path=current_context or (" > ".join(heading_stack.values()) if heading_stack else None),
+                section_path=current_context
+                or (" > ".join(heading_stack.values()) if heading_stack else None),
                 body=body,
                 cited_laws=buffer_cites[:],
                 metadata={"source_type": source.source_type},
             )
         )
+        if article_no:
+            last_article_key = article_no
         counter += 1
         buffer_lines = []
         buffer_cites = []
@@ -692,7 +860,11 @@ def parse_legal_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEnt
             flush()
             continue
 
-        if line.strip().startswith("|---") or line.strip().startswith("|---") or line.strip().startswith("|-"):
+        if (
+            line.strip().startswith("|---")
+            or line.strip().startswith("|---")
+            or line.strip().startswith("|-")
+        ):
             continue
 
         buffer_lines.append(line)
@@ -701,6 +873,39 @@ def parse_legal_corpus(final_md: Path, source: SourceDocument) -> list[CorpusEnt
                 buffer_cites.append(cite)
 
     flush()
+
+    # ── article_no 기준 dedup: 짧은 중복 버전 제거, 500자 초과 시 분리 유지 ────
+    if source.source_type == "law_notice":
+        result: list[CorpusEntry] = []
+        seen_keys: set[str] = set()
+        for e in entries:
+            key = e.article_no or e.corpus_id
+            if key not in seen_keys:
+                seen_keys.add(key)
+                result.append(e)
+            else:
+                # 이미 있는 같은 key — 직전 항목이 짧은 버전이면 긴 버전으로 교체
+                prev = result[-1] if result and (result[-1].article_no or result[-1].corpus_id) == key else None
+                if prev and prev.body in e.body:
+                    result[-1] = e  # 짧은 버전 → 긴 버전 교체
+                elif prev and e.body not in prev.body and len(prev.body) + len(e.body) <= 500:
+                    # 합쳐도 500자 이하면 병합
+                    result[-1] = CorpusEntry(
+                        corpus_id=prev.corpus_id,
+                        source_id=prev.source_id,
+                        content_type=prev.content_type,
+                        title=prev.title,
+                        article_no=prev.article_no,
+                        section_path=prev.section_path,
+                        body=prev.body + "\n" + e.body,
+                        cited_laws=list(dict.fromkeys(prev.cited_laws + e.cited_laws)),
+                        metadata=prev.metadata,
+                    )
+                else:
+                    # 500자 초과 → 분리 유지 (key 중복 허용)
+                    result.append(e)
+        return result
+
     return entries
 
 
@@ -719,7 +924,9 @@ def parse_category_rules(final_md: Path, source_id: str) -> list[LegalRule]:
     block = re.sub(r"<!--\s*context:.*?-->\n?", "", block)
     block = re.sub(r"^법제처.*$", "", block, flags=re.MULTILINE)
     block = re.sub(r"^###\s+(\d+)\.\s+(.+)$", r"\1. \2", block, flags=re.MULTILINE)
-    block = block.replace("비용 6. 근로자 건강장해예방비 등", "비용\n6. 근로자 건강장해예방비 등")
+    block = block.replace(
+        "비용 6. 근로자 건강장해예방비 등", "비용\n6. 근로자 건강장해예방비 등"
+    )
 
     rules: list[LegalRule] = []
     segment_pattern = re.compile(r"(?m)^(?:\[LEGAL_CITE:[^\]]+\]\s*)?([1-9])\.\s+")
@@ -738,7 +945,7 @@ def parse_category_rules(final_md: Path, source_id: str) -> list[LegalRule]:
         first_line_clean = _normalize_whitespace(_CITE_PATTERN.sub("", lines[0]))
         prefix = f"{number}. {known_name}"
         if first_line_clean.startswith(prefix):
-            remainder = first_line_clean[len(prefix):].strip()
+            remainder = first_line_clean[len(prefix) :].strip()
             rule_lines = ([remainder] if remainder else []) + [
                 _normalize_whitespace(_CITE_PATTERN.sub("", line)) for line in lines[1:]
             ]
@@ -848,7 +1055,9 @@ def parse_disallowed_rules(final_md: Path, source_id: str) -> list[LegalRule]:
 
         category_number = int(match.group(2))
         category_code = _CATEGORY_CODES.get(category_number)
-        category_name = _CATEGORY_NAMES.get(category_number, _normalize_whitespace(match.group(3)))
+        category_name = _CATEGORY_NAMES.get(
+            category_number, _normalize_whitespace(match.group(3))
+        )
         legal_basis = _normalize_whitespace(match.group(1))
         raw_body = _normalize_whitespace(match.group(4))
 
@@ -895,13 +1104,21 @@ def parse_disallowed_rules(final_md: Path, source_id: str) -> list[LegalRule]:
                     item_pattern=None,
                     legal_basis=legal_basis,
                     limit_pct=None,
-                    rule_text=_clean_rule_text_for_storage(raw_body, rule_type="disallowed"),
-                    metadata={"raw_category_name": _normalize_whitespace(match.group(3))},
+                    rule_text=_clean_rule_text_for_storage(
+                        raw_body, rule_type="disallowed"
+                    ),
+                    metadata={
+                        "raw_category_name": _normalize_whitespace(match.group(3))
+                    },
                 )
             )
         else:
-            for sec_idx, (label, section_text, sub_keywords) in enumerate(sections, start=1):
-                cleaned_text = _clean_rule_text_for_storage(section_text, rule_type="disallowed")
+            for sec_idx, (label, section_text, sub_keywords) in enumerate(
+                sections, start=1
+            ):
+                cleaned_text = _clean_rule_text_for_storage(
+                    section_text, rule_type="disallowed"
+                )
                 # keyword: 첫 번째 세부항목 or 섹션 첫 줄 요약
                 keyword = sub_keywords[0] if sub_keywords else cleaned_text[:40]
                 # item_pattern: 세부 키워드 전체 (매칭용)
@@ -946,7 +1163,10 @@ def parse_disallowed_rules(final_md: Path, source_id: str) -> list[LegalRule]:
                 legal_basis=None,
                 limit_pct=None,
                 rule_text="-",
-                metadata={"note": "원문 표에서 사용불가 내역이 '-'로 표기됨", "note_only": True},
+                metadata={
+                    "note": "원문 표에서 사용불가 내역이 '-'로 표기됨",
+                    "note_only": True,
+                },
             )
         )
     return rules
@@ -968,7 +1188,9 @@ def parse_progress_appendix_rules(final_md: Path, source_id: str) -> list[LegalR
         if stripped.startswith("| 공정율") or stripped.startswith("| 공정률"):
             progress_row = stripped
             continue
-        if progress_row and (stripped.startswith("| 사용기준") or stripped.startswith("| 사용 기준")):
+        if progress_row and (
+            stripped.startswith("| 사용기준") or stripped.startswith("| 사용 기준")
+        ):
             usage_row = stripped
             break
 
@@ -1044,7 +1266,9 @@ def parse_appendix_1_rules(final_md: Path, source_id: str) -> list[LegalRule]:
             continue
         if "공사종류" in stripped or stripped.startswith("|----"):
             continue
-        if any(token in stripped for token in ("건 | 축", "토 | 목", "중 | 건", "특 | 수")):
+        if any(
+            token in stripped for token in ("건 | 축", "토 | 목", "중 | 건", "특 | 수")
+        ):
             construction_rows.append((stripped, ""))
 
     for idx, (row, _) in enumerate(construction_rows, start=1):
@@ -1057,7 +1281,11 @@ def parse_appendix_1_rules(final_md: Path, source_id: str) -> list[LegalRule]:
                 extracted.append(f"{amount}원")
         if len(extracted) < 5:
             continue
-        name = expected_names[idx - 1] if idx - 1 < len(expected_names) else f"공사종류 {idx}"
+        name = (
+            expected_names[idx - 1]
+            if idx - 1 < len(expected_names)
+            else f"공사종류 {idx}"
+        )
         under_5, between_5_50, base_amount, over_50, manager_rate = extracted[:5]
 
         # [6] 숫자/한도 구조화 — string values → proper numeric types
@@ -1291,21 +1519,37 @@ def parse_law_detail_rules(final_md: Path, source_id: str) -> list[LegalRule]:
         cleaned_buf_text = _clean_rule_text_for_storage(buf_text, rule_type="allowed")
         limit_pct, limit_rule_text = _extract_limit(cleaned_buf_text)
         base_id = f"{source_id}:law-detail:{counter}"
-        rules.append(_make_rule(
-            rule_id=base_id, source_id=source_id, rule_type="allowed",
-            category_number=buf_cat, allowed=True, legal_basis=buf_basis,
-            rule_text=cleaned_buf_text, keyword=_CATEGORY_NAMES[buf_cat],
-            item_pattern=cleaned_buf_text, metadata={"source": "article7_detail"},
-        ))
+        rules.append(
+            _make_rule(
+                rule_id=base_id,
+                source_id=source_id,
+                rule_type="allowed",
+                category_number=buf_cat,
+                allowed=True,
+                legal_basis=buf_basis,
+                rule_text=cleaned_buf_text,
+                keyword=_CATEGORY_NAMES[buf_cat],
+                item_pattern=cleaned_buf_text,
+                metadata={"source": "article7_detail"},
+            )
+        )
         counter += 1
         if limit_pct is not None:
-            rules.append(_make_rule(
-                rule_id=f"{base_id}:limit", source_id=source_id, rule_type="limit",
-                category_number=buf_cat, allowed=True, legal_basis=buf_basis,
-                rule_text=limit_rule_text or cleaned_buf_text, keyword=_CATEGORY_NAMES[buf_cat],
-                item_pattern=cleaned_buf_text, limit_pct=limit_pct,
-                metadata={"source": "article7_limit"},
-            ))
+            rules.append(
+                _make_rule(
+                    rule_id=f"{base_id}:limit",
+                    source_id=source_id,
+                    rule_type="limit",
+                    category_number=buf_cat,
+                    allowed=True,
+                    legal_basis=buf_basis,
+                    rule_text=limit_rule_text or cleaned_buf_text,
+                    keyword=_CATEGORY_NAMES[buf_cat],
+                    item_pattern=cleaned_buf_text,
+                    limit_pct=limit_pct,
+                    metadata={"source": "article7_limit"},
+                )
+            )
             counter += 1
         buf_text = buf_basis = buf_cat = None
 
@@ -1353,15 +1597,23 @@ def parse_law_detail_rules(final_md: Path, source_id: str) -> list[LegalRule]:
 
         if in_exclusion:
             if re.match(r"^[1-4]\.", cleaned):
-                rules.append(_make_rule(
-                    rule_id=f"{source_id}:law-exclusion:{counter}",
-                    source_id=source_id, rule_type="disallowed",
-                    category_number=None, allowed=False,
-                    legal_basis=legal_basis,
-                    rule_text=_clean_rule_text_for_storage(cleaned, rule_type="disallowed"),
-                    item_pattern=_clean_rule_text_for_storage(cleaned, rule_type="disallowed"),
-                    metadata={"source": "article7_exclusion"},
-                ))
+                rules.append(
+                    _make_rule(
+                        rule_id=f"{source_id}:law-exclusion:{counter}",
+                        source_id=source_id,
+                        rule_type="disallowed",
+                        category_number=None,
+                        allowed=False,
+                        legal_basis=legal_basis,
+                        rule_text=_clean_rule_text_for_storage(
+                            cleaned, rule_type="disallowed"
+                        ),
+                        item_pattern=_clean_rule_text_for_storage(
+                            cleaned, rule_type="disallowed"
+                        ),
+                        metadata={"source": "article7_exclusion"},
+                    )
+                )
                 counter += 1
             continue
 
@@ -1399,8 +1651,14 @@ def parse_law_detail_rules(final_md: Path, source_id: str) -> list[LegalRule]:
 
 def _infer_allowed_from_answer(text: str) -> tuple[bool | None, str]:
     normalized = _normalize_whitespace(text)
-    has_allow = any(token in normalized for token in ["사용이 가능", "사용 가능", "가능함", "가능할 것"])
-    has_disallow = any(token in normalized for token in ["사용이 불가", "사용 불가", "불가함", "불가할", "제외"])
+    has_allow = any(
+        token in normalized
+        for token in ["사용이 가능", "사용 가능", "가능함", "가능할 것"]
+    )
+    has_disallow = any(
+        token in normalized
+        for token in ["사용이 불가", "사용 불가", "불가함", "불가할", "제외"]
+    )
     if has_allow and not has_disallow:
         return True, "allow_only"
     if has_disallow and not has_allow:
@@ -1427,8 +1685,20 @@ def _infer_rule_type(text: str) -> tuple[str, bool | None, float | None]:
         return "rule_like_limit", True, limit_pct
 
     normalized = _normalize_whitespace(text)
-    has_allow = any(token in normalized for token in ["사용이 가능", "사용 가능", "가능함", "할 수 있다"])
-    has_disallow = any(token in normalized for token in ["사용이 불가", "사용 불가", "불가함", "할 수 없다", "초과할 수 없다"])
+    has_allow = any(
+        token in normalized
+        for token in ["사용이 가능", "사용 가능", "가능함", "할 수 있다"]
+    )
+    has_disallow = any(
+        token in normalized
+        for token in [
+            "사용이 불가",
+            "사용 불가",
+            "불가함",
+            "할 수 없다",
+            "초과할 수 없다",
+        ]
+    )
 
     if has_allow and not has_disallow:
         return "rule_like_allowed", True, None
@@ -1446,7 +1716,9 @@ def parse_rule_like_corpus_rules(corpus_entries: list[CorpusEntry]) -> list[Lega
             continue
 
         rule_type, allowed, limit_pct = _infer_rule_type(entry.body)
-        cleaned_entry_body = _clean_rule_text_for_storage(entry.body, rule_type=rule_type)
+        cleaned_entry_body = _clean_rule_text_for_storage(
+            entry.body, rule_type=rule_type
+        )
         if _is_question_like_rule_text(cleaned_entry_body):
             continue
         category_number = None
@@ -1484,7 +1756,7 @@ def parse_rule_like_corpus_rules(corpus_entries: list[CorpusEntry]) -> list[Lega
 
 
 _QC_THRESHOLDS = {
-    "null_ratio": 0.10,       # > 10% empty rule_text → warning
+    "null_ratio": 0.10,  # > 10% empty rule_text → warning
     "note_only_ratio": 0.20,  # > 20% note_only rules → warning
     "heuristic_ratio": 0.40,  # > 40% rule_like/heuristic rules → warning
     "min_rules_per_source": 1,
@@ -1500,19 +1772,19 @@ def _rule_qc_metrics(rules: list) -> dict:
         return {"total": 0, "warnings": ["no rules found"]}
 
     null_count = sum(
-        1 for r in rules
-        if not r.rule_text or r.rule_text.strip() in ("-", "")
+        1 for r in rules if not r.rule_text or r.rule_text.strip() in ("-", "")
     )
     note_only_count = sum(
-        1 for r in rules
-        if (r.metadata or {}).get("note_only") is True
+        1 for r in rules if (r.metadata or {}).get("note_only") is True
     )
     heuristic_count = sum(
-        1 for r in rules
+        1
+        for r in rules
         if (r.metadata or {}).get("source_kind") in _HEURISTIC_SOURCE_KINDS
     )
     no_category_count = sum(
-        1 for r in rules
+        1
+        for r in rules
         if not r.category_code and r.rule_type not in ("progress", "limit")
     )
 
@@ -1522,11 +1794,17 @@ def _rule_qc_metrics(rules: list) -> dict:
 
     warnings: list[str] = []
     if null_ratio > _QC_THRESHOLDS["null_ratio"]:
-        warnings.append(f"null_ratio {null_ratio:.1%} > threshold {_QC_THRESHOLDS['null_ratio']:.0%}")
+        warnings.append(
+            f"null_ratio {null_ratio:.1%} > threshold {_QC_THRESHOLDS['null_ratio']:.0%}"
+        )
     if note_only_ratio > _QC_THRESHOLDS["note_only_ratio"]:
-        warnings.append(f"note_only_ratio {note_only_ratio:.1%} > threshold {_QC_THRESHOLDS['note_only_ratio']:.0%}")
+        warnings.append(
+            f"note_only_ratio {note_only_ratio:.1%} > threshold {_QC_THRESHOLDS['note_only_ratio']:.0%}"
+        )
     if heuristic_ratio > _QC_THRESHOLDS["heuristic_ratio"]:
-        warnings.append(f"heuristic_ratio {heuristic_ratio:.1%} > threshold {_QC_THRESHOLDS['heuristic_ratio']:.0%}")
+        warnings.append(
+            f"heuristic_ratio {heuristic_ratio:.1%} > threshold {_QC_THRESHOLDS['heuristic_ratio']:.0%}"
+        )
 
     rule_type_dist: dict[str, int] = {}
     for r in rules:
@@ -1645,7 +1923,9 @@ def parse_rule_profiles(rule_config_path: Path) -> list[LegalRuleProfile]:
 
     for item_key, policy in config.get("generic_item_policies", {}).items():
         conditional_categories = policy.get("conditional_categories") or []
-        category_code = conditional_categories[0] if len(conditional_categories) == 1 else None
+        category_code = (
+            conditional_categories[0] if len(conditional_categories) == 1 else None
+        )
         profiles.append(
             LegalRuleProfile(
                 profile_id=f"generic_item_policy:{_slugify(item_key)}",
@@ -1660,7 +1940,12 @@ def parse_rule_profiles(rule_config_path: Path) -> list[LegalRuleProfile]:
     return profiles
 
 
-def _infer_category_from_text(*, title: str | None = None, section_path: str | None = None, body: str | None = None) -> tuple[str | None, str | None]:
+def _infer_category_from_text(
+    *,
+    title: str | None = None,
+    section_path: str | None = None,
+    body: str | None = None,
+) -> tuple[str | None, str | None]:
     for number, name in _CATEGORY_NAMES.items():
         if title and name in title:
             return _CATEGORY_CODES[number], name
@@ -1710,7 +1995,9 @@ def build_master_rows(
                 "limit_pct": None,
                 "body": entry.body,
                 "cited_laws": entry.cited_laws,
-                "keywords": [value for value in [entry.title, entry.article_no] if value],
+                "keywords": [
+                    value for value in [entry.title, entry.article_no] if value
+                ],
                 "metadata": {"source_record": "legal_corpus", **entry.metadata},
             }
         )
@@ -1739,7 +2026,9 @@ def build_master_rows(
                 "limit_pct": rule.limit_pct,
                 "body": rule.rule_text,
                 "cited_laws": [rule.legal_basis] if rule.legal_basis else [],
-                "keywords": [value for value in [rule.keyword, rule.item_pattern] if value],
+                "keywords": [
+                    value for value in [rule.keyword, rule.item_pattern] if value
+                ],
                 "metadata": {"source_record": "legal_rules", **rule.metadata},
             }
         )
@@ -1768,7 +2057,10 @@ def build_master_rows(
                 "body": json.dumps(profile.values_json, ensure_ascii=False),
                 "cited_laws": [],
                 "keywords": [profile.profile_key],
-                "metadata": {"source_record": "legal_rule_profiles", **profile.metadata},
+                "metadata": {
+                    "source_record": "legal_rule_profiles",
+                    **profile.metadata,
+                },
             }
         )
 
@@ -1808,7 +2100,11 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
 
         allowed, mode = _infer_allowed_from_answer(cleaned_answer_text)
         limit_pct, limit_rule_text = _extract_limit(cleaned_answer_text)
-        cleaned_limit_rule_text = _clean_rule_text_for_storage(limit_rule_text or "", rule_type="qa") if limit_rule_text else ""
+        cleaned_limit_rule_text = (
+            _clean_rule_text_for_storage(limit_rule_text or "", rule_type="qa")
+            if limit_rule_text
+            else ""
+        )
         legal_basis = None
         for line in current_answer_lines:
             legal_basis = _first_cite(line)
@@ -1868,7 +2164,11 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
             continue
 
         if current_question:
-            if raw_line.strip().startswith("(건설산재예방정책과") or raw_line.strip().startswith("(2024년") or raw_line.strip().startswith("(2025년"):
+            if (
+                raw_line.strip().startswith("(건설산재예방정책과")
+                or raw_line.strip().startswith("(2024년")
+                or raw_line.strip().startswith("(2025년")
+            ):
                 flush()
                 continue
             current_answer_lines.append(raw_line)
@@ -1877,7 +2177,10 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
     return rules
 
 
-def build_payload(outputs_dir: Path, rule_config_path: Path = Path("scripts/seed_legal_rule_profiles.json")) -> dict:
+def build_payload(
+    outputs_dir: Path,
+    rule_config_path: Path = Path("scripts/seed_legal_rule_profiles.json"),
+) -> dict:
     documents = parse_source_documents(outputs_dir)
     corpus: list[dict] = []
     corpus_entries: list[CorpusEntry] = []
@@ -1887,21 +2190,32 @@ def build_payload(outputs_dir: Path, rule_config_path: Path = Path("scripts/seed
         corpus.extend(asdict(entry) for entry in entries)
 
     law_doc = next(doc for doc in documents if doc.source_type == "law_notice")
-    appendix_doc = next(doc for doc in documents if doc.source_type == "appendix_disallowed")
+    appendix_doc = next(
+        doc for doc in documents if doc.source_type == "appendix_disallowed"
+    )
     commentary_doc = next(doc for doc in documents if doc.source_type == "commentary")
     progress_docs = [
-        doc for doc in documents
+        doc
+        for doc in documents
         if "건설업 산업안전 보건관리비 해설 및 질의회시집" in doc.source_name
         or "별표 3" in Path(doc.source_path).read_text(encoding="utf-8")
     ]
     progress_rules: list[LegalRule] = []
     for progress_doc in progress_docs:
-        progress_rules = parse_progress_appendix_rules(Path(progress_doc.source_path), progress_doc.source_id)
+        progress_rules = parse_progress_appendix_rules(
+            Path(progress_doc.source_path), progress_doc.source_id
+        )
         if progress_rules:
             break
-    appendix_1_rules = parse_appendix_1_rules(Path(commentary_doc.source_path), commentary_doc.source_id)
-    appendix_1_2_rules = parse_appendix_1_2_rules(Path(commentary_doc.source_path), commentary_doc.source_id)
-    appendix_1_3_rules = parse_appendix_1_3_rules(Path(commentary_doc.source_path), commentary_doc.source_id)
+    appendix_1_rules = parse_appendix_1_rules(
+        Path(commentary_doc.source_path), commentary_doc.source_id
+    )
+    appendix_1_2_rules = parse_appendix_1_2_rules(
+        Path(commentary_doc.source_path), commentary_doc.source_id
+    )
+    appendix_1_3_rules = parse_appendix_1_3_rules(
+        Path(commentary_doc.source_path), commentary_doc.source_id
+    )
 
     rule_entries = [
         *parse_category_rules(Path(law_doc.source_path), law_doc.source_id),
@@ -1911,7 +2225,9 @@ def build_payload(outputs_dir: Path, rule_config_path: Path = Path("scripts/seed
         *appendix_1_2_rules,
         *appendix_1_3_rules,
         *progress_rules,
-        *parse_commentary_qa_rules(Path(commentary_doc.source_path), commentary_doc.source_id),
+        *parse_commentary_qa_rules(
+            Path(commentary_doc.source_path), commentary_doc.source_id
+        ),
         *parse_rule_like_corpus_rules(corpus_entries),
     ]
     # rule_like(순수 컨텍스트 텍스트)는 규칙이 아니므로 payload rules에서 제외
@@ -2020,11 +2336,13 @@ def payload_to_sql(payload: dict, *, full_refresh: bool = False) -> str:
     statements = ["BEGIN;", "SET LOCAL search_path TO legal_rag, public;"]
 
     # ── source_name 목록 (master 레코드에서 추출) ─────────────────
-    source_names = list({
-        row.get("source_name", "")
-        for row in payload.get("master", [])
-        if row.get("record_type") in ("corpus", "rule") and row.get("source_name")
-    })
+    source_names = list(
+        {
+            row.get("source_name", "")
+            for row in payload.get("master", [])
+            if row.get("record_type") in ("corpus", "rule") and row.get("source_name")
+        }
+    )
     sn_list = ", ".join(_sql_literal(sn) for sn in source_names)
 
     if full_refresh:
@@ -2047,20 +2365,20 @@ def payload_to_sql(payload: dict, *, full_refresh: bool = False) -> str:
             continue  # profile 타입은 legal_rule_profiles 로 적재
 
         original_st = row.get("source_type")
-        v2_st       = _V2_SOURCE_TYPE.get(original_st, original_st) or "law"
+        v2_st = _V2_SOURCE_TYPE.get(original_st, original_st) or "law"
         original_ct = row.get("content_type")
-        v2_ct       = _V2_CONTENT_TYPE.get(original_ct, original_ct) if original_ct else None
+        v2_ct = _V2_CONTENT_TYPE.get(original_ct, original_ct) if original_ct else None
         original_rt = row.get("rule_type")
-        v2_rt       = _V2_RULE_TYPE.get(original_rt, original_rt) if original_rt else None
+        v2_rt = _V2_RULE_TYPE.get(original_rt, original_rt) if original_rt else None
 
-        source_id   = row.get("source_id")
-        source_doc  = source_map.get(source_id or "", {})
+        source_id = row.get("source_id")
+        source_doc = source_map.get(source_id or "", {})
         source_path = source_doc.get("source_path", "")
 
-        body      = row.get("body") or ""
+        body = row.get("body") or ""
         body_hash = _hashlib.sha256(body.encode("utf-8")).hexdigest()
 
-        legal_basis           = row.get("legal_basis")
+        legal_basis = row.get("legal_basis")
         paragraph_no, item_no = _parse_basis(legal_basis)
 
         meta = dict(row.get("metadata") or {})
@@ -2073,8 +2391,16 @@ def payload_to_sql(payload: dict, *, full_refresh: bool = False) -> str:
         if original_rt in _CONFIDENCE_BY_RULE_TYPE:
             meta.setdefault("confidence", _CONFIDENCE_BY_RULE_TYPE[original_rt])
 
-        cited_laws_arr = "ARRAY[" + ", ".join(_sql_literal(c) for c in (row.get("cited_laws") or [])) + "]::TEXT[]"
-        keywords_arr   = "ARRAY[" + ", ".join(_sql_literal(k) for k in (row.get("keywords") or [])) + "]::TEXT[]"
+        cited_laws_arr = (
+            "ARRAY["
+            + ", ".join(_sql_literal(c) for c in (row.get("cited_laws") or []))
+            + "]::TEXT[]"
+        )
+        keywords_arr = (
+            "ARRAY["
+            + ", ".join(_sql_literal(k) for k in (row.get("keywords") or []))
+            + "]::TEXT[]"
+        )
 
         statements.append(
             "INSERT INTO legal_master "
@@ -2092,7 +2418,7 @@ def payload_to_sql(payload: dict, *, full_refresh: bool = False) -> str:
             f"{_sql_literal(paragraph_no)}, "
             f"{_sql_literal(item_no)}, "
             f"{_sql_literal(row.get('section_path'))}, "
-            f"NULL, "   # chunk_id — Qdrant 연동 후 채움
+            f"NULL, "  # chunk_id — Qdrant 연동 후 채움
             f"{_sql_literal(body)}, "
             f"{_sql_literal(record_type)}, "
             f"{_sql_literal(v2_ct)}, "
@@ -2115,11 +2441,11 @@ def payload_to_sql(payload: dict, *, full_refresh: bool = False) -> str:
     # ── legal_rule_profiles INSERT ────────────────────────────────
     for row in payload.get("rule_profiles", []):
         original_scope = row.get("profile_scope")
-        v2_scope       = _V2_PROFILE_SCOPE.get(original_scope, original_scope)
+        v2_scope = _V2_PROFILE_SCOPE.get(original_scope, original_scope)
         meta = dict(row.get("metadata") or {})
         if v2_scope != original_scope:
             meta["original_scope"] = original_scope
-        vj  = row.get("values_json")
+        vj = row.get("values_json")
         vj_sql = (
             "'" + json.dumps(vj, ensure_ascii=False).replace("'", "''") + "'::jsonb"
         )
@@ -2175,21 +2501,21 @@ def execute_payload_to_rdb(payload: dict, database_url: str) -> dict:
             continue  # 'profile' 타입은 legal_rule_profiles로 적재
 
         original_st = row.get("source_type")
-        v2_st       = _V2_SOURCE_TYPE.get(original_st, original_st) or "law"
+        v2_st = _V2_SOURCE_TYPE.get(original_st, original_st) or "law"
         original_ct = row.get("content_type")
-        v2_ct       = _V2_CONTENT_TYPE.get(original_ct, original_ct) if original_ct else None
+        v2_ct = _V2_CONTENT_TYPE.get(original_ct, original_ct) if original_ct else None
         original_rt = row.get("rule_type")
-        v2_rt       = _V2_RULE_TYPE.get(original_rt, original_rt) if original_rt else None
+        v2_rt = _V2_RULE_TYPE.get(original_rt, original_rt) if original_rt else None
 
-        source_id  = row.get("source_id")
+        source_id = row.get("source_id")
         source_doc = source_map.get(source_id or "", {})
         source_path = source_doc.get("source_path", "")
 
-        body      = row.get("body") or ""
+        body = row.get("body") or ""
         body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
 
-        legal_basis             = row.get("legal_basis")
-        paragraph_no, item_no  = _parse_basis(legal_basis)
+        legal_basis = row.get("legal_basis")
+        paragraph_no, item_no = _parse_basis(legal_basis)
 
         meta = dict(row.get("metadata") or {})
         if original_ct and v2_ct != original_ct:
@@ -2201,50 +2527,54 @@ def execute_payload_to_rdb(payload: dict, database_url: str) -> dict:
         if original_rt in _CONFIDENCE_BY_RULE_TYPE:
             meta.setdefault("confidence", _CONFIDENCE_BY_RULE_TYPE[original_rt])
 
-        master_records.append((
-            row["master_id"],          # id
-            row.get("source_name", ""),# source_name
-            v2_st,                     # source_type
-            source_path,               # source_path
-            row.get("article_no"),     # article_no
-            paragraph_no,              # paragraph_no
-            item_no,                   # item_no
-            row.get("section_path"),   # section_path
-            None,                      # chunk_id (Qdrant 연동 후 채움)
-            body,                      # body
-            record_type,               # record_type
-            v2_ct,                     # content_type
-            v2_rt,                     # rule_type
-            row.get("category_code"),  # category_code
-            row.get("category_name"),  # category_name
-            row.get("allowed"),        # allowed
-            row.get("limit_pct"),      # limit_pct
-            row.get("item_key"),       # keyword
-            row.get("item_pattern"),   # item_pattern
-            legal_basis,               # legal_basis
-            row.get("cited_laws") or [],  # cited_laws (TEXT[])
-            row.get("keywords") or [],    # keywords   (TEXT[])
-            body_hash,                 # hash
-            Json(meta),                # metadata (JSONB)
-        ))
+        master_records.append(
+            (
+                row["master_id"],  # id
+                row.get("source_name", ""),  # source_name
+                v2_st,  # source_type
+                source_path,  # source_path
+                row.get("article_no"),  # article_no
+                paragraph_no,  # paragraph_no
+                item_no,  # item_no
+                row.get("section_path"),  # section_path
+                None,  # chunk_id (Qdrant 연동 후 채움)
+                body,  # body
+                record_type,  # record_type
+                v2_ct,  # content_type
+                v2_rt,  # rule_type
+                row.get("category_code"),  # category_code
+                row.get("category_name"),  # category_name
+                row.get("allowed"),  # allowed
+                row.get("limit_pct"),  # limit_pct
+                row.get("item_key"),  # keyword
+                row.get("item_pattern"),  # item_pattern
+                legal_basis,  # legal_basis
+                row.get("cited_laws") or [],  # cited_laws (TEXT[])
+                row.get("keywords") or [],  # keywords   (TEXT[])
+                body_hash,  # hash
+                Json(meta),  # metadata (JSONB)
+            )
+        )
 
     # ── legal_rule_profiles 레코드 구성 ──────────────────────────
     profile_records: list[tuple] = []
     for row in payload.get("rule_profiles", []):
         original_scope = row.get("profile_scope")
-        v2_scope       = _V2_PROFILE_SCOPE.get(original_scope, original_scope)
+        v2_scope = _V2_PROFILE_SCOPE.get(original_scope, original_scope)
         meta = dict(row.get("metadata") or {})
         if v2_scope != original_scope:
             meta["original_scope"] = original_scope
         vj = row.get("values_json")
-        profile_records.append((
-            row["profile_id"],
-            v2_scope,
-            row.get("category_code"),
-            row["profile_key"],
-            Json(vj),       # values_json (JSONB)
-            Json(meta),     # metadata   (JSONB)
-        ))
+        profile_records.append(
+            (
+                row["profile_id"],
+                v2_scope,
+                row.get("category_code"),
+                row["profile_key"],
+                Json(vj),  # values_json (JSONB)
+                Json(meta),  # metadata   (JSONB)
+            )
+        )
 
     # ── DB 적재 ───────────────────────────────────────────────────
     source_names = list({r[1] for r in master_records if r[1]})
@@ -2296,11 +2626,11 @@ def execute_payload_to_rdb(payload: dict, database_url: str) -> dict:
         conn.commit()
 
     corpus_count = sum(1 for r in master_records if r[10] == "corpus")
-    rules_count  = sum(1 for r in master_records if r[10] == "rule")
+    rules_count = sum(1 for r in master_records if r[10] == "rule")
     return {
-        "master":   len(master_records),
-        "corpus":   corpus_count,
-        "rules":    rules_count,
+        "master": len(master_records),
+        "corpus": corpus_count,
+        "rules": rules_count,
         "profiles": len(profile_records),
     }
 
@@ -2318,22 +2648,43 @@ def main() -> None:
         description="Extract legal corpus and decision rules, then load them into PostgreSQL."
     )
     parser.add_argument("--outputs-dir", default="outputs")
-    parser.add_argument("--rule-config-path", default="scripts/seed_legal_rule_profiles.json")
+    parser.add_argument(
+        "--rule-config-path", default="scripts/seed_legal_rule_profiles.json"
+    )
     parser.add_argument("--json-out", default="artifacts/legal_rules_payload.json")
-    parser.add_argument("--sql-out", default="artifacts/legal_rules_seed.sql",
-                        help="SQL 파일 출력 경로 (--apply 없이 SQL만 확인할 때 사용).")
-    parser.add_argument("--apply", action="store_true",
-                        help="legal_rag 스키마에 직접 적재한다 (psycopg2, 새 3-table 스키마 기준).")
-    parser.add_argument("--full-refresh", action="store_true",
-                        help="전체 테이블 TRUNCATE 후 재적재. 기본은 source_name 단위 DELETE+INSERT.")
-    parser.add_argument("--database-url", default=None,
-                        help="PostgreSQL connection string. 미지정 시 DATABASE_URL 환경변수 사용.")
-    parser.add_argument("--psql-bin", default="psql",
-                        help="(SQL 파일 직접 실행 시) psql 바이너리 경로.")
-    parser.add_argument("--use-psql", action="store_true",
-                        help="--apply 시 psycopg2 대신 psql 바이너리로 SQL 파일을 실행한다.")
-    parser.add_argument("--cleanup", action="store_true",
-                        help="DB 적재 성공 후 중간 파일(json/sql) 삭제.")
+    parser.add_argument(
+        "--sql-out",
+        default="artifacts/legal_rules_seed.sql",
+        help="SQL 파일 출력 경로 (--apply 없이 SQL만 확인할 때 사용).",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="legal_rag 스키마에 직접 적재한다 (psycopg2, 새 3-table 스키마 기준).",
+    )
+    parser.add_argument(
+        "--full-refresh",
+        action="store_true",
+        help="전체 테이블 TRUNCATE 후 재적재. 기본은 source_name 단위 DELETE+INSERT.",
+    )
+    parser.add_argument(
+        "--database-url",
+        default=None,
+        help="PostgreSQL connection string. 미지정 시 DATABASE_URL 환경변수 사용.",
+    )
+    parser.add_argument(
+        "--psql-bin", default="psql", help="(SQL 파일 직접 실행 시) psql 바이너리 경로."
+    )
+    parser.add_argument(
+        "--use-psql",
+        action="store_true",
+        help="--apply 시 psycopg2 대신 psql 바이너리로 SQL 파일을 실행한다.",
+    )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="DB 적재 성공 후 중간 파일(json/sql) 삭제.",
+    )
     args = parser.parse_args()
 
     payload = build_payload(Path(args.outputs_dir), Path(args.rule_config_path))
@@ -2341,17 +2692,23 @@ def main() -> None:
     # JSON 아티팩트 저장
     json_out = Path(args.json_out)
     json_out.parent.mkdir(parents=True, exist_ok=True)
-    json_out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    json_out.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     # SQL 파일 생성 (새 3-table 스키마 기준)
     sql_out = Path(args.sql_out)
     sql_out.parent.mkdir(parents=True, exist_ok=True)
-    sql_out.write_text(payload_to_sql(payload, full_refresh=args.full_refresh), encoding="utf-8")
+    sql_out.write_text(
+        payload_to_sql(payload, full_refresh=args.full_refresh), encoding="utf-8"
+    )
 
     if args.apply:
         db_url = args.database_url or os.environ.get("DATABASE_URL")
         if not db_url:
-            raise SystemExit("--apply 실행에는 --database-url 또는 DATABASE_URL 환경변수가 필요합니다.")
+            raise SystemExit(
+                "--apply 실행에는 --database-url 또는 DATABASE_URL 환경변수가 필요합니다."
+            )
 
         if args.use_psql:
             # SQL 파일을 psql 바이너리로 직접 실행 (디버깅/수동 적재용)

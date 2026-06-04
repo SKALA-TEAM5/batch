@@ -1,4 +1,0 @@
-resources:
-  - qdrant-ingest-job.yaml
-  - qdrant-refresh-job.yaml
-  - safety-doc-reference-ingest-job.yaml

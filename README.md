@@ -2,6 +2,12 @@
 
 법령/RAG 데이터를 PostgreSQL과 Qdrant에 적재하거나 갱신하는 배치 프로젝트입니다.
 
+## 역할
+
+- `ingest`: MinIO PDF, 법제처 Open API, 산안비 사용기준을 Qdrant/RDB에 초기 적재
+- `refresh`: 변경분을 감지해 Qdrant/RDB를 갱신
+- `safety-doc-reference`: MinIO의 safety-doc-agent 마크다운을 `safety-guide` Qdrant collection으로 적재
+
 ## Kubernetes 연결
 
 배치 Pod는 같은 namespace 안의 내부 Service로 접속합니다.
@@ -11,17 +17,11 @@ QDRANT_URL=http://team5-qdrant:6333
 POSTGRES_HOST=team5-postgres
 POSTGRES_PORT=5432
 POSTGRES_DB=safety
+APP_MINIO_ENDPOINT=http://team5-minio:9000
+APP_MINIO_BUCKET=safety-files
 ```
 
 `DATABASE_URL`은 Kubernetes Job 시작 시 `team5-postgres-secret`의 `LAW_APP_USER`와 `LAW_APP_PASSWORD`로 조립합니다.
-
-초기 적재(`ingest`)는 MinIO의 `safety-files/data/` prefix에서 PDF 파일을 내려받아 `data/` 디렉토리에 동기화한 뒤 처리합니다.
-
-```env
-APP_MINIO_ENDPOINT=http://team5-minio:9000
-APP_MINIO_BUCKET=safety-files
-BATCH_MINIO_DATA_PREFIX=data/
-```
 
 ## 주요 명령
 
@@ -29,6 +29,12 @@ BATCH_MINIO_DATA_PREFIX=data/
 
 ```bash
 python -m src.ingestion_service --collection legal_documents --force
+```
+
+증분 갱신:
+
+```bash
+python -m src.refresh_service --collection legal_documents
 ```
 
 Safety Doc Agent 참고자료 적재:
@@ -40,17 +46,14 @@ python -m src.safety_doc_reference_ingest \
   --force
 ```
 
-증분 갱신:
-
-```bash
-python -m src.refresh_service --collection legal_documents
-```
-
 ## 로컬 확인
+
+Kubernetes의 공유 리소스를 port-forward로 연결합니다.
 
 ```bash
 kubectl port-forward svc/team5-postgres 5433:5432 -n skala3-finalproj-class2-team5
 kubectl port-forward svc/team5-qdrant 6333:6333 -n skala3-finalproj-class2-team5
+kubectl port-forward svc/team5-minio 9000:9000 -n skala3-finalproj-class2-team5
 ```
 
 `.env` 예시:
@@ -67,17 +70,19 @@ BATCH_MINIO_DATA_PREFIX=data/
 
 ## 배포/실행
 
-GitHub Actions에서 이미지를 빌드한 뒤, 수동 실행으로 Kubernetes Job을 생성합니다.
+GitHub Actions에서 이미지를 빌드한 뒤, 선택한 Kubernetes Job을 생성합니다.
 
 - `ingest`: 전체 초기 적재
 - `refresh`: 변경분 갱신
-- `safety-doc-reference`: MinIO `safety-files/safety-doc-agent/` 마크다운을 `safety-guide` Qdrant collection으로 적재
+- `safety-doc-reference`: MinIO `safety-files/safety-doc-agent/` 마크다운을 `safety-guide` collection으로 적재
 
-Actions는 Job을 생성한 뒤 종료합니다. PDF 변환은 Kubernetes에서 계속 실행되므로 로컬에서 로그를 확인합니다.
+Kubernetes Job manifest는 이 레포가 아니라 `SKALA-TEAM5/deploy` 레포의 `k8s/batch`에서 관리합니다.
+batch workflow는 deploy 레포를 checkout한 뒤 해당 Job manifest를 적용합니다.
 
 ```bash
 kubectl get jobs,pods -n skala3-finalproj-class2-team5 -l app=team5-batch
 kubectl logs -f job/team5-qdrant-ingest -n skala3-finalproj-class2-team5
+kubectl logs -f job/team5-qdrant-refresh -n skala3-finalproj-class2-team5
 kubectl logs -f job/team5-safety-doc-reference-ingest -n skala3-finalproj-class2-team5
 ```
 
