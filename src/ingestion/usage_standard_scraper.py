@@ -241,11 +241,7 @@ def _update_source_metadata(summary: dict[str, Any], service: dict[str, Any]) ->
     _LAW_PREFIX = title
     _NOTICE_NO = f"제{notice_no}호" if notice_no else ""
     _EFFECTIVE_DATE = effective_date or ""
-    _SOURCE_NAME = (
-        f"{title}(고용노동부{kind})"
-        f"({_NOTICE_NO})"
-        f"({effective_compact})"
-    )
+    _SOURCE_NAME = f"{title}(고용노동부{kind})({_NOTICE_NO})({effective_compact})[API]"
     _USAGE_STANDARD_URL = (
         "https://www.law.go.kr/DRF/lawService.do"
         f"?target=admrul&ID={admrul_seq}&type=JSON"
