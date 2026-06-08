@@ -370,6 +370,38 @@ def run_pipeline(
         except Exception as e:
             log.warning("산안비 사용기준 파이프라인 실패 (건너뜀): %s", e)
 
+    # ── classifier profiles UPSERT (항상 마지막에 실행) ──────────
+    # seed_legal_rule_profiles.json 기반 strong_terms/medium_terms 등을
+    # 별도 단계로 UPSERT하여 ingestion 실패와 무관하게 profiles가 보존됨
+    profiles_upserted = 0
+    if db_url:
+        print("\n  [classifier profiles] seed_legal_rule_profiles.json UPSERT 시작...")
+        try:
+            import subprocess, sys
+            result_proc = subprocess.run(
+                [sys.executable, "scripts/update_classifier_profiles.py"],
+                env={**__import__("os").environ, "DATABASE_URL": db_url},
+                capture_output=True,
+                text=True,
+            )
+            if result_proc.returncode == 0:
+                # "완료: 36개 UPSERT" 줄에서 숫자 추출
+                summary = next(
+                    (l for l in result_proc.stdout.splitlines() if l.startswith("완료:")),
+                    "완료"
+                )
+                import re as _re
+                m = _re.search(r"(\d+)개", summary)
+                profiles_upserted = int(m.group(1)) if m else 0
+                print(f"  [classifier profiles] {summary}")
+                log.info("[profiles] classifier profiles UPSERT 완료")
+            else:
+                print(f"  [classifier profiles] UPSERT 실패 — 기존 profiles 유지")
+                log.warning("classifier profiles UPSERT 실패:\n%s", result_proc.stderr)
+        except Exception as e:
+            print(f"  [classifier profiles] UPSERT 실패 — 기존 profiles 유지")
+            log.warning("classifier profiles UPSERT 실패: %s", e, exc_info=True)
+
     result = {
         "pdf_chunks": len(pdf_chunks),
         "total_chunks": len(pdf_chunks) + law_api_chunks + usage_std_qdrant,
@@ -377,13 +409,12 @@ def run_pipeline(
         "pdf_rdb_master": pdf_rdb_master,
         "pdf_rdb_corpus": pdf_rdb_corpus,
         "pdf_rdb_rules": pdf_rdb_rules,
-        "pdf_rdb_profiles": pdf_rdb_profiles,
         "law_api_rdb": law_api_rdb,
         "usage_standard_qdrant": usage_std_qdrant,
         "usage_standard_master": usage_std_master,
         "usage_standard_corpus": usage_std_corpus,
         "usage_standard_rules": usage_std_rules,
-        "usage_standard_profiles": usage_std_profiles,
+        "classifier_profiles": profiles_upserted,
         "skipped": False,
     }
     _save_state(collection, result)
