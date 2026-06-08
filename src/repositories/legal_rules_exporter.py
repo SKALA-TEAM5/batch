@@ -2556,27 +2556,9 @@ def execute_payload_to_rdb(payload: dict, database_url: str) -> dict:
             )
         )
 
-    # ── legal_rule_profiles 레코드 구성 ──────────────────────────
-    profile_records: list[tuple] = []
-    for row in payload.get("rule_profiles", []):
-        original_scope = row.get("profile_scope")
-        v2_scope = _V2_PROFILE_SCOPE.get(original_scope, original_scope)
-        meta = dict(row.get("metadata") or {})
-        if v2_scope != original_scope:
-            meta["original_scope"] = original_scope
-        vj = row.get("values_json")
-        profile_records.append(
-            (
-                row["profile_id"],
-                v2_scope,
-                row.get("category_code"),
-                row["profile_key"],
-                Json(vj),  # values_json (JSONB)
-                Json(meta),  # metadata   (JSONB)
-            )
-        )
-
     # ── DB 적재 ───────────────────────────────────────────────────
+    # profiles는 ingestion_service.py 마지막 단계(update_classifier_profiles)에서만 관리
+    # execute_payload_to_rdb()에서는 legal_master만 처리
     source_names = list({r[1] for r in master_records if r[1]})
 
     with psycopg.connect(database_url) as conn:
@@ -2588,7 +2570,6 @@ def execute_payload_to_rdb(payload: dict, database_url: str) -> dict:
                     "DELETE FROM legal_master WHERE source_name = ANY(%s)",
                     (source_names,),
                 )
-            cur.execute("DELETE FROM legal_rule_profiles WHERE true")
 
             if master_records:
                 cur.executemany(
@@ -2608,21 +2589,6 @@ def execute_payload_to_rdb(payload: dict, database_url: str) -> dict:
                     """,
                     master_records,
                 )
-
-            if profile_records:
-                cur.executemany(
-                    """
-                    INSERT INTO legal_rule_profiles (
-                        profile_id, profile_scope, category_code,
-                        profile_key, values_json, metadata
-                    ) VALUES (%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (profile_scope, category_code, profile_key)
-                    DO UPDATE SET
-                        values_json = EXCLUDED.values_json,
-                        metadata    = EXCLUDED.metadata
-                    """,
-                    profile_records,
-                )
         conn.commit()
 
     corpus_count = sum(1 for r in master_records if r[10] == "corpus")
@@ -2631,7 +2597,7 @@ def execute_payload_to_rdb(payload: dict, database_url: str) -> dict:
         "master": len(master_records),
         "corpus": corpus_count,
         "rules": rules_count,
-        "profiles": len(profile_records),
+        "profiles": 0,  # profiles는 ingestion_service 마지막 단계에서 별도 관리
     }
 
 
