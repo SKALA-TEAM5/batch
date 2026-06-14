@@ -19,7 +19,7 @@ from src.refresh.diff_engine import (
     collect_and_diff_law_api,
     collect_and_diff_usage_standard,
 )
-from src.refresh.law_log_writer import build_log_row, insert_law_log, new_run_id
+from src.refresh.law_log_writer import build_log_row, insert_law_log, insert_sentinel_log, new_run_id
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def run_refresh(
         _apply_qdrant_changes(collection_name, diff)
         _apply_rdb_changes(db_url, run_id, diff)
 
-    return RefreshSummary(
+    summary = RefreshSummary(
         run_id=run_id,
         sources=[
             RefreshSourceSummary(
@@ -110,6 +110,14 @@ def run_refresh(
             for diff in diffs
         ],
     )
+
+    if summary.changed == 0:
+        with psycopg.connect(db_url) as conn:
+            with conn.cursor() as cur:
+                insert_sentinel_log(cur, run_id)
+        log.info("변경 없음 — sentinel 행 기록 완료 (run_id=%s)", run_id)
+
+    return summary
 
 
 def _apply_qdrant_changes(collection_name: str, diff: SourceDiff) -> None:
