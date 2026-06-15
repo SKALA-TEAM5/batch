@@ -192,6 +192,34 @@ class TestSplitMixedAnswer:
         segs = _split_mixed_answer(text)
         assert segs == []
 
+    def test_linebreak_in_connector(self):
+        """줄바꿈이 접속사 중간에 끼는 경우 (qa:52 패턴) — normalize 후 매칭"""
+        text = (
+            "교육 진행 중 제공하는 음료·중식비는 사용이 가능할\n"
+            "것이나, 그 외 경우는 사용이 불가함."
+        )
+        segs = _split_mixed_answer(text)
+        assert len(segs) == 2
+        a0, _ = _infer_allowed_from_answer(segs[0])
+        a1, _ = _infer_allowed_from_answer(segs[1])
+        assert a0 is True
+        assert a1 is False
+
+    def test_asterisk_note_split(self):
+        """별표 주석 구분자 패턴 (qa:16 패턴: 가능함 * 단서는 불가함)"""
+        text = (
+            "도로 등 작업 중 근로자를 보호하기 위한 목적의 교통안전시설물 등은 "
+            "산업안전보건관리비(안전시설비 항목)로 사용이 가능함\n"
+            "* 공사금액에 안전관리비가 반영되어 있는 경우라면 해당 시설 설치비용에 "
+            "대해서는 산업안전보건관리비 사용이 불가함"
+        )
+        segs = _split_mixed_answer(text)
+        assert len(segs) == 2
+        a0, _ = _infer_allowed_from_answer(segs[0])
+        a1, _ = _infer_allowed_from_answer(segs[1])
+        assert a0 is True
+        assert a1 is False
+
 
 # ── _is_valid_segment ─────────────────────────────────────────────────────────
 
