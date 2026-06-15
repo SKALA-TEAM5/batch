@@ -1696,10 +1696,12 @@ _SPLIT_CONNECTORS: list[str] = [
     "사용이 불가하므로,",
     "가능하나,",
     "가능할 것이나,",
+    "가능할 것으로 판단되나,",
     "가능하다고 규정하고 있으나,",
     "\n- 다만,",
     "\n다만,",
     " 다만,",
+    "\n* ",   # 별표 주석 구분자 (qa:16 패턴: 가능함\n* 단서조건은 불가함)
 ]
 
 
@@ -1729,13 +1731,17 @@ def _split_mixed_answer(text: str) -> list[str]:
 
     분리 기준 접속사를 찾으면 해당 위치에서 split 후 반환.
     접속사를 찾지 못하면 빈 리스트 반환 (분리 불가).
+
+    줄바꿈이 connector 중간에 끼는 경우를 처리하기 위해
+    normalized text 기준으로 검색한다.
     """
+    search_text = _normalize_whitespace(text)
     for connector in _SPLIT_CONNECTORS:
-        if connector in text:
-            idx = text.index(connector)
-            # connector 자체를 각 segment에 포함 — 판정 토큰 보존
-            left = text[: idx + len(connector)].strip()
-            right = text[idx + len(connector) :].strip()
+        connector_n = _normalize_whitespace(connector)
+        if connector_n in search_text:
+            idx = search_text.index(connector_n)
+            left = search_text[: idx + len(connector_n)].strip()
+            right = search_text[idx + len(connector_n) :].strip()
             segments = [s for s in (left, right) if s]
             if len(segments) == 2:
                 return segments
@@ -2213,8 +2219,13 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
             current_answer_lines = []
             return
 
-        allowed, mode = _infer_allowed_from_answer(cleaned_answer_text)
-        limit_pct, limit_rule_text = _extract_limit(cleaned_answer_text)
+        # mixed 검출은 clean 전 raw text로 수행 — _clean_rule_text_for_storage가
+        # 세그먼트 점수 기반으로 "불가" 부분을 drop할 수 있기 때문
+        raw_allowed, raw_mode = _infer_allowed_from_answer(answer_text)
+        allowed = raw_allowed
+        mode = raw_mode
+
+        limit_pct, limit_rule_text = _extract_limit(answer_text)
         cleaned_limit_rule_text = (
             _clean_rule_text_for_storage(limit_rule_text or "", rule_type="qa")
             if limit_rule_text
@@ -2234,16 +2245,19 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
             "limit_rule_text": cleaned_limit_rule_text,
         }
 
-        # mixed → 역접 접속사 기준으로 허용/불허 rule 각각 생성
+        # mixed → 역접 접속사 기준으로 허용/불허 rule 각각 생성 (raw text 기준 분리)
         if mode == "mixed" and limit_pct is None:
-            segments = _split_mixed_answer(cleaned_answer_text)
+            segments = _split_mixed_answer(answer_text)
             split_added = False
-            for suffix, seg in zip(("allowed", "disallowed"), segments):
+            for seg in segments:
                 if not _is_valid_segment(seg):
                     continue
-                seg_allowed, seg_mode = _infer_allowed_from_answer(seg)
+                # clean 후 inference — raw seg에 sub-question 잔류 시 mixed 오판 방지
+                seg_cleaned = _clean_rule_text_for_storage(seg, rule_type="qa") or seg
+                seg_allowed, seg_mode = _infer_allowed_from_answer(seg_cleaned)
                 if seg_allowed is None:
                     continue
+                suffix = "allowed" if seg_allowed else "disallowed"
                 seg_rule_type = "qa_allowed" if seg_allowed else "qa_disallowed"
                 # segment별 법령 조항 재추출 — 없으면 parent legal_basis 공유
                 seg_legal_basis = _first_cite(seg) or legal_basis
@@ -2255,7 +2269,7 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
                         category_number=current_category,
                         allowed=seg_allowed,
                         legal_basis=seg_legal_basis,
-                        rule_text=seg,
+                        rule_text=seg_cleaned,
                         keyword=qa_keyword,
                         item_pattern=qa_keyword,
                         limit_pct=None,
