@@ -1735,9 +1735,12 @@ def _split_mixed_answer(text: str) -> list[str]:
     줄바꿈이 connector 중간에 끼는 경우를 처리하기 위해
     normalized text 기준으로 검색한다.
     """
+    # 입력 텍스트는 strip 포함 normalize (accidental leading whitespace 제거)
+    # 커넥터는 strip 없이 whitespace만 단일 공백으로 치환 — "\n다만,"가 "다만,"으로
+    # strip되면 텍스트 첫머리와 오매칭되므로 leading space를 보존해야 함
     search_text = _normalize_whitespace(text)
     for connector in _SPLIT_CONNECTORS:
-        connector_n = _normalize_whitespace(connector)
+        connector_n = re.sub(r"\s+", " ", connector)  # strip 없이 공백 정규화
         if connector_n in search_text:
             idx = search_text.index(connector_n)
             left = search_text[: idx + len(connector_n)].strip()
