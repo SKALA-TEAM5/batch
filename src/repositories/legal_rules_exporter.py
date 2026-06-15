@@ -310,10 +310,20 @@ def _extract_qa_keyword(question: str) -> str:
     → '전산볼트용 추락방지대 구입비를 안전시설비 항목으로'
 
     keyword가 너무 길면 validator 토큰 매칭에서 false positive가 발생하므로
-    '사용 가능한지' 앞부분만 잘라내고 80자로 제한한다.
+    판단 방향(허용/불허)과 무관하게 핵심 항목명 앞부분만 잘라내고 80자로 제한한다.
     """
     q = _normalize_whitespace(question or "")
-    for marker in ("사용 가능한지", "사용이 가능한지", "가능한지"):
+    for marker in (
+        # 허용 방향
+        "사용 가능한지", "사용이 가능한지", "사용할 수 있는지",
+        "집행할 수 있는지", "가능한지", "가능 여부",
+        "인정되는지", "해당되는지",
+        # 불허 방향
+        "사용 불가한지", "사용이 불가한지", "사용할 수 없는지",
+        "집행이 불가한지",
+        # 공통 후행 패턴 (위 마커 없을 때 보조)
+        "항목으로 사용",
+    ):
         if marker in q:
             q = q.split(marker)[0].strip()
             break
@@ -1649,23 +1659,100 @@ def parse_law_detail_rules(final_md: Path, source_id: str) -> list[LegalRule]:
     return rules
 
 
+# ── 허용/불허 판정 토큰 ────────────────────────────────────────────────────────
+_ALLOW_TOKENS: list[str] = [
+    "사용이 가능", "사용 가능", "가능함", "가능할 것",
+    "사용할 수 있음", "사용할 수 있는",
+    "집행이 가능",
+    "허용됨", "허용되며", "허용하고 있음",
+    "인정됨", "인정되며",
+    "사용이 가능하다고 규정",
+]
+
+_DISALLOW_TOKENS: list[str] = [
+    "사용이 불가", "사용 불가", "불가함", "불가할",
+    "불가하며", "불가하나", "불가하도록",
+    "사용이 불가하므로",
+    "사용할 수 없", "사용할 수 없도록",
+    "허용하지 않고 있음", "허용을 하지 않고 있음",
+    "허용되지 않", "인정되지 않",
+    "집행이 불가",
+    "제외",
+]
+
+# 분리 후 segment가 undetermined로 간주되는 문구 (스킵 대상)
+_UNDETERMINED_PHRASES: list[str] = [
+    "귀 질의만으로",
+    "질의내용만으로",
+    "정확한 답변을 드리기 어려우나",
+    "별도 문의가 필요",
+]
+
+# 역접 분리 패턴 — 구체적인 패턴이 앞에 위치 (우선 매칭)
+_SPLIT_CONNECTORS: list[str] = [
+    "불가할 것이나,",
+    "불가하며,",
+    "불가하나,",
+    "사용이 불가하므로,",
+    "가능하나,",
+    "가능할 것이나,",
+    "가능하다고 규정하고 있으나,",
+    "\n- 다만,",
+    "\n다만,",
+    " 다만,",
+]
+
+
 def _infer_allowed_from_answer(text: str) -> tuple[bool | None, str]:
+    """텍스트에서 허용/불허 여부를 판정한다.
+
+    반환값:
+      (True,  "allow_only")     — 허용 표현만 존재
+      (False, "disallow_only")  — 불허 표현만 존재
+      (None,  "mixed")          — 허용+불허 혼재 → caller가 분리 처리
+      (None,  "undetermined")   — 판정 불가
+    """
     normalized = _normalize_whitespace(text)
-    has_allow = any(
-        token in normalized
-        for token in ["사용이 가능", "사용 가능", "가능함", "가능할 것"]
-    )
-    has_disallow = any(
-        token in normalized
-        for token in ["사용이 불가", "사용 불가", "불가함", "불가할", "제외"]
-    )
+    has_allow = any(token in normalized for token in _ALLOW_TOKENS)
+    has_disallow = any(token in normalized for token in _DISALLOW_TOKENS)
     if has_allow and not has_disallow:
         return True, "allow_only"
     if has_disallow and not has_allow:
         return False, "disallow_only"
     if has_allow and has_disallow:
-        return True, "mixed_with_exception"
+        return None, "mixed"
     return None, "undetermined"
+
+
+def _split_mixed_answer(text: str) -> list[str]:
+    """혼재 답변을 역접 접속사 기준으로 최대 2개 segment로 분리한다.
+
+    분리 기준 접속사를 찾으면 해당 위치에서 split 후 반환.
+    접속사를 찾지 못하면 빈 리스트 반환 (분리 불가).
+    """
+    for connector in _SPLIT_CONNECTORS:
+        if connector in text:
+            idx = text.index(connector)
+            # connector 자체를 각 segment에 포함 — 판정 토큰 보존
+            left = text[: idx + len(connector)].strip()
+            right = text[idx + len(connector) :].strip()
+            segments = [s for s in (left, right) if s]
+            if len(segments) == 2:
+                return segments
+    return []
+
+
+def _is_valid_segment(seg: str) -> bool:
+    """분리된 segment가 rule 생성에 유효한지 확인한다."""
+    if len(seg.strip()) < 20:
+        return False
+    if any(phrase in seg for phrase in _UNDETERMINED_PHRASES):
+        return False
+    # allow/disallow 판정 토큰이 하나도 없으면 순수 법령 인용 → 스킵
+    normalized = _normalize_whitespace(seg)
+    has_a = any(t in normalized for t in _ALLOW_TOKENS)
+    has_d = any(t in normalized for t in _DISALLOW_TOKENS)
+    return has_a or has_d
 
 
 def _is_rule_like_text(text: str) -> bool:
@@ -1685,25 +1772,18 @@ def _infer_rule_type(text: str) -> tuple[str, bool | None, float | None]:
         return "rule_like_limit", True, limit_pct
 
     normalized = _normalize_whitespace(text)
-    has_allow = any(
-        token in normalized
-        for token in ["사용이 가능", "사용 가능", "가능함", "할 수 있다"]
-    )
+    has_allow = any(token in normalized for token in _ALLOW_TOKENS)
     has_disallow = any(
         token in normalized
-        for token in [
-            "사용이 불가",
-            "사용 불가",
-            "불가함",
-            "할 수 없다",
-            "초과할 수 없다",
-        ]
+        for token in _DISALLOW_TOKENS + ["할 수 없다", "초과할 수 없다"]
     )
 
     if has_allow and not has_disallow:
         return "rule_like_allowed", True, None
     if has_disallow and not has_allow:
         return "rule_like_disallowed", False, None
+    if has_allow and has_disallow:
+        return "rule_like_mixed", None, None
     return "rule_like", None, None
 
 
@@ -1730,6 +1810,46 @@ def parse_rule_like_corpus_rules(corpus_entries: list[CorpusEntry]) -> list[Lega
                 category_number = number
                 break
 
+        base_metadata = {
+            "source": "corpus_rule_like",
+            "corpus_id": entry.corpus_id,
+            "content_type": entry.content_type,
+            "section_path": entry.section_path or "",
+        }
+
+        # mixed → 분리 시도 후 허용/불허 rule 각각 생성
+        if rule_type == "rule_like_mixed":
+            segments = _split_mixed_answer(cleaned_entry_body)
+            split_added = False
+            for suffix, seg in zip(("allowed", "disallowed"), segments):
+                if not _is_valid_segment(seg):
+                    continue
+                seg_allowed, seg_mode = _infer_allowed_from_answer(seg)
+                if seg_allowed is None:
+                    continue
+                seg_rule_type = "rule_like_allowed" if seg_allowed else "rule_like_disallowed"
+                rules.append(
+                    _make_rule(
+                        rule_id=f"{entry.source_id}:corpus-rule:{counter}:{suffix}",
+                        source_id=entry.source_id,
+                        rule_type=seg_rule_type,
+                        category_number=category_number,
+                        allowed=seg_allowed,
+                        legal_basis=entry.cited_laws[0] if entry.cited_laws else None,
+                        rule_text=seg,
+                        keyword=entry.title,
+                        item_pattern=seg[:200],
+                        limit_pct=None,
+                        metadata={**base_metadata, "inference_mode": f"split_{suffix}"},
+                    )
+                )
+                split_added = True
+            if split_added:
+                counter += 1
+                continue
+            # 분리 실패 → rule_like(allowed=None)로 단일 저장
+            rule_type, allowed = "rule_like", None
+
         rules.append(
             _make_rule(
                 rule_id=f"{entry.source_id}:corpus-rule:{counter}",
@@ -1742,12 +1862,7 @@ def parse_rule_like_corpus_rules(corpus_entries: list[CorpusEntry]) -> list[Lega
                 keyword=entry.title,
                 item_pattern=cleaned_entry_body[:200],
                 limit_pct=limit_pct,
-                metadata={
-                    "source": "corpus_rule_like",
-                    "corpus_id": entry.corpus_id,
-                    "content_type": entry.content_type,
-                    "section_path": entry.section_path or "",
-                },
+                metadata=base_metadata,
             )
         )
         counter += 1
@@ -2111,6 +2226,51 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
             if legal_basis:
                 break
 
+        qa_keyword = _extract_qa_keyword(current_question)
+        base_metadata = {
+            "source": "commentary_qa",
+            "question": current_question,
+            "context": current_context or "",
+            "limit_rule_text": cleaned_limit_rule_text,
+        }
+
+        # mixed → 역접 접속사 기준으로 허용/불허 rule 각각 생성
+        if mode == "mixed" and limit_pct is None:
+            segments = _split_mixed_answer(cleaned_answer_text)
+            split_added = False
+            for suffix, seg in zip(("allowed", "disallowed"), segments):
+                if not _is_valid_segment(seg):
+                    continue
+                seg_allowed, seg_mode = _infer_allowed_from_answer(seg)
+                if seg_allowed is None:
+                    continue
+                seg_rule_type = "qa_allowed" if seg_allowed else "qa_disallowed"
+                # segment별 법령 조항 재추출 — 없으면 parent legal_basis 공유
+                seg_legal_basis = _first_cite(seg) or legal_basis
+                rules.append(
+                    _make_rule(
+                        rule_id=f"{source_id}:qa:{counter}:{suffix}",
+                        source_id=source_id,
+                        rule_type=seg_rule_type,
+                        category_number=current_category,
+                        allowed=seg_allowed,
+                        legal_basis=seg_legal_basis,
+                        rule_text=seg,
+                        keyword=qa_keyword,
+                        item_pattern=qa_keyword,
+                        limit_pct=None,
+                        metadata={**base_metadata, "inference_mode": f"split_{suffix}"},
+                    )
+                )
+                split_added = True
+            if split_added:
+                counter += 1
+                current_question = None
+                current_answer_lines = []
+                return
+            # 분리 실패 → undetermined로 단일 저장 (기존 동작 유지)
+            allowed, mode = None, "mixed_split_failed"
+
         rule_type = "qa"
         if limit_pct is not None:
             rule_type = "qa_limit"
@@ -2128,16 +2288,10 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
                 allowed=allowed,
                 legal_basis=legal_basis,
                 rule_text=cleaned_answer_text,
-                keyword=_extract_qa_keyword(current_question),
-                item_pattern=_extract_qa_keyword(current_question),
+                keyword=qa_keyword,
+                item_pattern=qa_keyword,
                 limit_pct=limit_pct,
-                metadata={
-                    "source": "commentary_qa",
-                    "question": current_question,
-                    "context": current_context or "",
-                    "inference_mode": mode,
-                    "limit_rule_text": cleaned_limit_rule_text,
-                },
+                metadata={**base_metadata, "inference_mode": mode},
             )
         )
         counter += 1
@@ -2157,7 +2311,17 @@ def parse_commentary_qa_rules(final_md: Path, source_id: str) -> list[LegalRule]
             continue
 
         question_match = _QUESTION_PATTERN.match(raw_line.strip())
-        if question_match and "사용 가능한지" in question_match.group(2):
+        if question_match and any(
+            marker in question_match.group(2)
+            for marker in (
+                "사용 가능한지", "사용이 가능한지", "사용할 수 있는지",
+                "집행할 수 있는지", "가능한지", "가능 여부",
+                "인정되는지", "해당되는지",
+                "사용 불가한지", "사용이 불가한지", "사용할 수 없는지",
+                "집행이 불가한지",
+                "항목으로 사용",
+            )
+        ):
             flush()
             current_question = _normalize_whitespace(question_match.group(2))
             current_answer_lines = []
